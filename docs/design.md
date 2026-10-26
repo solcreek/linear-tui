@@ -306,6 +306,11 @@ Refresh policy — no tight polling:
 - `--updated-since` cannot see an issue that *left* the view (moved to Done,
   reassigned): its row stays until the next full reload. A full reload of the first
   page runs every 10 minutes while active, and on `r`. `watch` would fix this (gap 1).
+- When linearctl has `watch` (detected from `describe`), the TUI runs one watcher
+  for the visible view and drops both timers; they stay as the fallback when the
+  watcher exits. linear-cli reports (2026-10-26) that Linear's GraphQL
+  subscriptions accept a personal API key, events arriving 0.07–4.6 s after a
+  change, so `watch` will push rather than poll where it can.
 - Details are cached for 2 min; nothing is prefetched.
 - Lookups: once per day per team.
 
@@ -459,7 +464,9 @@ Ordered by how much the TUI needs it.
    `{"type":"upsert","issue":{…}}` and `{"type":"remove","id":…}` when an issue
    stops matching. `--updated-since` already gives upserts; the TUI cannot see
    removals without a full reload. One watcher per key also beats each consumer
-   polling.
+   polling. *Accepted*: linear-cli will build it on Linear's (undocumented)
+   GraphQL subscriptions with a polling fallback, re-checking the filter for each
+   changed issue to emit removals; the NDJSON shape comes before the build.
 2. **`linearctl serve --stdio`**: one long-lived process taking NDJSON
    `{"id":…,"argv":[…]}` and answering `{"id":…,"exit":N,"result":{…}}` with the
    same JSON as the CLI. Saves TCP + TLS (~40 ms of each ~150 ms call), the
