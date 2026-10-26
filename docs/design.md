@@ -7,7 +7,7 @@ can do with the CLI — and the TUI shows the exact command for each action (see
 [Command parity](#command-parity)).
 
 Built against linearctl **0.1.0**. Every `linearctl` invocation in this file is
-checked against linearctl 0.3.0's `describe` by `cargo test` (`src/contract.rs`);
+checked against linearctl 0.4.0's `describe` by `cargo test` (`src/contract.rs`);
 the commands under "(proposed)" headings do not exist yet.
 
 Facts below marked *verified* were run against the live API on 2026-10-26.
@@ -48,7 +48,7 @@ Modules, each tested as it is written (`cargo llvm-cov`: 97% of lines):
 
 | module | does | tested by |
 |---|---|---|
-| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.3.0 snapshots |
+| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.4.0 snapshots |
 | `ctl` | argv builders; `Runner` spawns with a deadline and maps exit codes; `Exec` | unit; the fake binary with injected faults |
 | `model` | serde types for every result; unknown fields ignored, missing ones defaulted | fixtures from the fake and from linearctl 0.1.0 |
 | `sanitize` | strips control, C1 and bidi characters from all Linear text | unit |
@@ -454,12 +454,81 @@ renderer**, not an off-the-shelf widget.
   revalidated.
 - `--fields` keeps list payloads small; details always fetch all fields.
 
+## herdr plugin
+
+[herdr](https://herdr.dev) is a terminal workspace manager for coding agents. Its
+plugins are a directory with a `herdr-plugin.toml` and the commands it launches:
+panes (terminal programs, overlay/split/tab/zoomed), actions (bindable to keys),
+event hooks, startup hooks and link handlers (Ctrl+click on a matching URL runs
+an action instead of the browser). A plugin talks to herdr through the `herdr`
+CLI (`$HERDR_BIN_PATH`).
+
+The plugin lives here, in `herdr-plugin/`, not in linear-cli:
+
+- What a plugin can show is a terminal pane; the TUI is that pane. A linearctl
+  plugin could only print JSON into a popup, or start linear-tui, turning the
+  dependency around (linear-tui depends on linearctl, never the reverse).
+- linearctl stays the neutral layer people and agents share, tied to no
+  multiplexer. Anything the plugin needs from it must make sense without herdr
+  (say, resolving a Linear URL to an identifier) and goes in the
+  [list](#what-linearctl-lacks-proposed) like any other ask.
+- Every byte of Linear data still comes from linearctl: the plugin's scripts
+  start linear-tui, and linear-tui runs linearctl.
+
+Install: `herdr plugin install solcreek/linear-tui/herdr-plugin`, or
+`herdr plugin link herdr-plugin` from a checkout while developing.
+
+### Stage 1: a pane and a link handler *(done)*
+
+- `linear-tui ISSUE` opens that issue first; ISSUE is an identifier (`ENG-142`)
+  or its `linear.app/<workspace>/issue/ENG-142/…` URL. Anything else is a usage
+  error, so a URL that is not an issue never starts the TUI. A URL's issue opens
+  once `auth status` shows its workspace is the one linearctl is logged in to;
+  another workspace's ENG-142 is a different issue, so it is refused with a
+  status line naming both.
+- Pane `tui` runs linear-tui; actions `open` (the issue list) and `open-link`
+  open it as an overlay over the focused pane, so `esc`/`q` returns to it.
+  `open-split` opens it beside the pane instead, `popup` in pane `popup`
+  (herdr passes no terminal graphics through a popup, so no images there), and
+  `demo` on the fictional workspace (`LINEAR_TUI_DEMO`).
+- `LINEAR_TUI_ARGS` in herdr's environment adds arguments: image detection
+  cannot see past herdr to the terminal, so images need `--images kitty`.
+  `scripts/herdr-screenshots.sh` renders the README's herdr screenshots in a
+  herdr with its own `HOME`, server and tmux.
+- Link handler `issue` sends Ctrl+clicks on Linear issue URLs to `open-link`,
+  which opens a fresh pane on that issue (`HERDR_PLUGIN_CLICKED_URL`).
+- herdr starts plugin commands with a short PATH, so `open.sh` looks in the
+  usual install directories (`~/.cargo/bin`, `~/go/bin`, Homebrew, `~/.local/bin`)
+  and passes the resolved `linear-tui` and `linearctl` to the pane as
+  `LINEAR_TUI_BIN` and `LINEARCTL`. Both can be set outright in herdr's
+  environment.
+
+### Stage 2: one pane per workspace
+
+A second click opens a second pane. Instead: `open-link` focuses the
+workspace's linear-tui pane if it has one and asks it to open the issue. The
+TUI needs a way to be asked: it reads open requests from a file in its state
+directory (`$XDG_STATE_HOME/linear-tui/<pane>/open`), checked each tick, keyed
+by `HERDR_PANE_ID` so two panes do not take each other's requests. A startup
+hook reopens linear-tui in the panes it ran in before a herdr restart.
+
+### Stage 3: what agents can see
+
+- linear-tui writes the issue on screen (identifier, URL, title) to
+  `$XDG_STATE_HOME/linear-tui/<pane>/focus.json`; an agent beside it reads that
+  instead of being told, then uses linearctl for everything else.
+- A key that sends a note about the open issue to the adjacent agent pane
+  (`herdr pane send-text`), so "look at ENG-142" is one keystroke.
+- Issue rows marked with the agent working on them, joined by the issue's
+  branch name (Linear's `eng-142-…`) against the worktrees herdr reports on
+  `worktree.*` and `pane.agent_*` events.
+
 ## Testing
 
 Tests ship with each change, in Rust only; CI fails below 90% line coverage
 (`cargo llvm-cov`; 97% now, the uncovered part is mostly the terminal loop).
 
-- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.3.0
+- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.4.0
   (`tests/fixtures/`) are checked against every argv the app builds and against
   this doc. `LINEARCTL_LIVE=linearctl cargo test` checks the installed one.
 - **Fake**: `fake-linearctl` serves `demo/workspace.json` in linearctl's shapes,
@@ -487,7 +556,9 @@ Tests ship with each change, in Rust only; CI fails below 90% line coverage
 5. Writes: quick edits, create, comment, description, archive *(done)*; the full
    edit form, undo, thread replies.
 6. Live updates with `watch` and calls over `serve --stdio`. *Done.*
-7. Release: per-platform binaries on npm as `linear-tui`, like linearctl's.
+7. herdr plugin: a pane and a link handler *(done)*; one pane per workspace;
+   what agents can see. See [herdr plugin](#herdr-plugin).
+8. Release: per-platform binaries on npm as `linear-tui`, like linearctl's.
 
 ## What linearctl lacks (proposed)
 

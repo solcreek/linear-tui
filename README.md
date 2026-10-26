@@ -62,35 +62,41 @@ detail, `s` `p` `a` `L` `P` set state, priority, assignee, labels, project, `c`
 creates (or comments, in an issue), `E` edits the description, `?` lists the
 rest. The demo takes no writes, but shows every dry run and confirm dialog.
 
-## In herdr
+`linear-tui ENG-142` (or the issue's linear.app URL) opens that issue first.
 
-linear-tui is also a [herdr](https://herdr.dev) plugin: Linear in a split
-beside your agents, or in a popup over them.
+## herdr
+
+In [herdr](https://herdr.dev), the plugin in `herdr-plugin/` opens linear-tui
+over the focused pane, beside it, or in a popup, and Ctrl+click on a Linear
+issue link opens the issue there instead of in the browser.
 
 ![herdr with a project on its ENG-142 branch: git log on the left, and linear-tui in a split on the right showing ENG-142 with its screenshot drawn inline](docs/images/herdr-split.png)
 
 ![The linear-tui popup over a herdr workspace, on the Active view](docs/images/herdr-popup.png)
 
 ```sh
-herdr plugin install solcreek/linear-tui   # builds with cargo: needs Rust 1.90+
-herdr plugin action invoke linear-tui.demo
+herdr plugin install solcreek/linear-tui/herdr-plugin
+herdr plugin action invoke solcreek.linear-tui.demo   # the demo workspace, no account
 ```
 
-The actions are `linear-tui.open` (a split), `linear-tui.popup` and
-`linear-tui.demo`; bind one to a key in `~/.config/herdr/config.toml`:
+It needs `linear-tui` and `linearctl` on `PATH` or in `~/.cargo/bin`, `~/go/bin`
+or Homebrew's bin; or set `LINEAR_TUI_BIN` and `LINEARCTL` in herdr's environment.
+
+The actions are `solcreek.linear-tui.open` (over the focused pane),
+`.open-split`, `.popup`, `.demo` and `.open-link` (the link handler's). Bind
+one in `~/.config/herdr/config.toml`:
 
 ```toml
 [[keys.command]]
 key = "prefix+alt+l"
 type = "plugin_action"
-command = "linear-tui.open"
+command = "solcreek.linear-tui.open"
 description = "Linear"
 ```
 
-`open` and `popup` need linearctl on the `PATH` herdr runs with, logged in as
-above. Images inside herdr need `LINEAR_TUI_ARGS="--images kitty"` in that
-environment (detection cannot see past herdr to your terminal), and show in a
-split but not in a popup.
+Images inside herdr need `LINEAR_TUI_ARGS="--images kitty"` in herdr's
+environment (detection cannot see past herdr to your terminal); they show over
+the pane and in a split, but not in a popup.
 
 ## Tests
 

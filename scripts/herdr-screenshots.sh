@@ -1,7 +1,8 @@
 #!/bin/sh
-# Regenerates the README's herdr screenshots: the plugin's demo in a herdr
-# that shares nothing with yours (its own HOME, server and tmux), driven in a
-# detached tmux session and rendered with termshot, as scripts/screenshots.sh.
+# Regenerates the README's herdr screenshots: the plugin in herdr-plugin/ on
+# the demo workspace, in a herdr that shares nothing with yours (its own HOME,
+# server and tmux), driven in a detached tmux session and rendered with
+# termshot, as scripts/screenshots.sh.
 #
 #   scripts/herdr-screenshots.sh      # writes docs/images/herdr-*.png
 #   TERMSHOT=/path/to/termshot scripts/herdr-screenshots.sh
@@ -11,7 +12,7 @@ root=$(pwd)
 termshot=${TERMSHOT:-termshot}
 command -v "$termshot" >/dev/null || { echo "termshot not found; set TERMSHOT" >&2; exit 1; }
 command -v herdr >/dev/null || { echo "herdr not found" >&2; exit 1; }
-sh scripts/herdr-build.sh >/dev/null
+cargo build --quiet --release --bins
 out=docs/images
 px=28
 size=160x44
@@ -19,7 +20,6 @@ size=160x44
 home=$(mktemp -d /tmp/lt-herdr.XXXX)
 tmux="tmux -L lt-herdr"
 log=$home/pty.log
-h() { HOME=$home herdr "$@" >/dev/null; }
 trap 'HOME=$home herdr server stop >/dev/null 2>&1 || true; $tmux kill-server 2>/dev/null || true; rm -rf "$home"' EXIT
 
 cell=$(printf x | "$termshot" -v --size 1x1 --px $px - /dev/null 2>&1 | sed -n 's/.*cell \([0-9]*x[0-9]*\).*/\1/p')
@@ -34,10 +34,10 @@ for m in "Checkout v2 behind a flag" "Coupon field on the payment step" "Log rej
 done
 git -C "$repo" switch -q -c maya/eng-142-coupon-whitespace
 
-# shot NAME ENTRYPOINT KEYS...: a fresh herdr, the plugin pane, each key, the
-# last frame.
+# shot NAME PLACEMENT KEYS...: a fresh herdr, `open.sh demo PLACEMENT`, each
+# key, the last frame.
 shot() {
-	name=$1 entry=$2
+	name=$1 placement=$2
 	shift 2
 	$tmux kill-server 2>/dev/null || true
 	HOME=$home herdr server stop >/dev/null 2>&1 || true
@@ -46,7 +46,7 @@ shot() {
 	# Unset tmux's variables so herdr talks kitty graphics to termshot, which
 	# replays the raw log.
 	$tmux new-session -d -s shot -x "${size%x*}" -y "${size#*x}" -c "$repo" \
-		"sleep 0.5; exec env -u TMUX -u TERM_PROGRAM -u TERM_PROGRAM_VERSION HOME=$home TERM=xterm-kitty SHELL=/bin/zsh LINEAR_TUI_ARGS='--images kitty --cell-size $cell' herdr"
+		"sleep 0.5; exec env -u TMUX -u TERM_PROGRAM -u TERM_PROGRAM_VERSION HOME=$home TERM=xterm-kitty SHELL=/bin/zsh herdr"
 	$tmux pipe-pane -t shot -O "cat >> '$log'"
 	sleep 4
 	# First run: the welcome, then the agent integrations offer.
@@ -54,10 +54,12 @@ shot() {
 	sleep 0.5
 	$tmux send-keys -t shot Escape
 	sleep 0.5
-	h plugin link "$root"
+	HOME=$home herdr plugin link "$root/herdr-plugin" >/dev/null
 	$tmux send-keys -t shot "clear; git --no-pager log --oneline --decorate" Enter
 	sleep 1
-	h plugin pane open --plugin linear-tui --entrypoint "$entry" --focus
+	HOME=$home LINEAR_TUI_BIN=$root/target/release/linear-tui \
+		LINEAR_TUI_ARGS="--images kitty --cell-size $cell" \
+		sh herdr-plugin/open.sh demo "$placement" >/dev/null
 	sleep 2
 	for key in "$@"; do
 		$tmux send-keys -t shot "$key"
@@ -69,5 +71,5 @@ shot() {
 	echo "$out/$name.png"
 }
 
-shot herdr-popup demo-popup 2
-shot herdr-split demo Enter j j j j j j j j
+shot herdr-popup popup 2
+shot herdr-split split Enter j j j j j j j j

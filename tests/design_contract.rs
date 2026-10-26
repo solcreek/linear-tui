@@ -1,11 +1,11 @@
 //! Every linearctl call named in docs/design.md exists in the current
-//! linearctl (0.3.0); every command line the app builds exists in 0.1.0 too,
+//! linearctl (0.4.0); every command line the app builds exists in 0.1.0 too,
 //! the oldest release it supports.
 
 use linear_tui::contract::Describe;
 
 const SNAPSHOT: &str = include_str!("fixtures/linearctl-describe-0.1.0.json");
-const SNAPSHOT_0_3_0: &str = include_str!("fixtures/linearctl-describe-0.3.0.json");
+const SNAPSHOT_0_4_0: &str = include_str!("fixtures/linearctl-describe-0.4.0.json");
 const DESIGN: &str = include_str!("../docs/design.md");
 
 fn assert_design_matches(d: &Describe) {
@@ -20,16 +20,16 @@ fn snapshot_is_linearctl_0_1_0() {
 }
 
 #[test]
-fn design_matches_the_0_3_0_snapshot() {
-    let d = Describe::from_json(SNAPSHOT_0_3_0).unwrap();
-    assert_eq!(d.version, "0.3.0");
+fn design_matches_the_0_4_0_snapshot() {
+    let d = Describe::from_json(SNAPSHOT_0_4_0).unwrap();
+    assert_eq!(d.version, "0.4.0");
     assert_design_matches(&d);
 }
 
 #[test]
 fn the_app_works_with_both_releases() {
     use linear_tui::app::{default_views, missing};
-    for snap in [SNAPSHOT, SNAPSHOT_0_3_0] {
+    for snap in [SNAPSHOT, SNAPSHOT_0_4_0] {
         let d = Describe::from_json(snap).unwrap();
         assert!(missing(&d, &default_views()).is_empty(), "linearctl {}", d.version);
     }
