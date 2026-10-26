@@ -1,0 +1,14 @@
+{
+  "name": "linear-tui",
+  "version": "0.0.1",
+  "description": "Terminal UI for Linear in Rust and Ratatui. Every read and write goes through linearctl --json. Pre-release: not usable yet.",
+  "license": "MIT",
+  "author": "solcreek",
+  "repository": { "type": "git", "url": "git+https://github.com/solcreek/linear-tui.git" },
+  "homepage": "https://github.com/solcreek/linear-tui#readme",
+  "bugs": "https://github.com/solcreek/linear-tui/issues",
+  "keywords": ["linear", "linear-app", "tui", "terminal", "ratatui", "issue-tracker", "cli"],
+  "bin": { "linear-tui": "bin/linear-tui" },
+  "files": ["bin", "LICENSE", "README.md"],
+  "engines": { "node": ">=18" }
+}

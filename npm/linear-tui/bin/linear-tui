@@ -1,0 +1,19 @@
+#!/usr/bin/env node
+// Placeholder until the first release with a binary (0.1.0).
+"use strict"
+const { version } = require("../package.json")
+const arg = process.argv[2]
+if (arg === "--version") {
+  console.log(`linear-tui ${version}`)
+  process.exit(0)
+}
+const msg = [
+  `linear-tui ${version} is a placeholder: the TUI is not released yet.`,
+  "Follow https://github.com/solcreek/linear-tui for the first release (npx linear-tui --demo).",
+]
+if (arg === "--help" || arg === "-h") {
+  console.log(msg.join("\n"))
+  process.exit(0)
+}
+console.error(msg.join("\n"))
+process.exit(1)
