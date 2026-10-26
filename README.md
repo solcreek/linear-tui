@@ -97,9 +97,12 @@ command = "solcreek.linear-tui.open"
 description = "Linear"
 ```
 
-Images show over the pane and in a split; a popup passes no terminal graphics,
-so there they are half blocks. `LINEAR_TUI_ARGS` in herdr's environment adds
-arguments to every linear-tui the plugin starts (e.g. `--images off`).
+herdr (0.9.5) does not tell its plugin panes the cell size, so images there
+are half blocks. For sharp images over the pane and in a split, give your
+terminal's cell size in pixels: `LINEAR_TUI_ARGS="--cell-size 13x29"` in
+herdr's environment (a popup passes no terminal graphics, so it stays half
+blocks). `LINEAR_TUI_ARGS` adds those arguments to every linear-tui the plugin
+starts.
 
 ## Tests
 
