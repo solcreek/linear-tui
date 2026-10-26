@@ -87,6 +87,8 @@ def check_one(text, table, global_flags):
     while i < len(argv) and path + (argv[i],) in table:
         path += (argv[i],)
         i += 1
+    if i < len(argv) and argv[i] in ("…", "..."):
+        return []  # prose placeholder: "linearctl … --json" names no command
     if not path:
         flags = global_flags
         if i < len(argv) and not argv[i].startswith("-"):

@@ -91,6 +91,9 @@ class CheckOne(unittest.TestCase):
         self.assertEqual(problems("`linearctl --json`")[1], [])
         self.assertIn("--nope", problems("`linearctl --nope`")[1][0])
 
+    def test_ellipsis_is_a_placeholder(self):
+        self.assertEqual(problems("`linearctl … --json` and `linearctl issue ...`")[1], [])
+
     def test_reports_line_numbers(self):
         self.assertTrue(problems("\n\n`linearctl issue list --nope`")[1][0].startswith("line 3:"))
 
