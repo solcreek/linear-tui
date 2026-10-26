@@ -2,8 +2,12 @@
 name = "linear-tui"
 version = "0.0.0"
 edition = "2024"
+rust-version = "1.88"
 description = "A terminal UI for Linear that gets all its data from linearctl"
 license = "MIT"
+repository = "https://github.com/solcreek/linear-tui"
+keywords = ["linear", "tui", "ratatui", "terminal", "issue-tracker"]
+categories = ["command-line-utilities"]
 publish = false
 
 [dependencies]
