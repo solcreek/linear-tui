@@ -94,10 +94,19 @@ pub fn can_check_updated(d: &crate::contract::Describe) -> bool {
     d.check_argv(&probe).is_empty()
 }
 
-/// The issue identifier `arg` names: ENG-142 itself, or a Linear issue URL
-/// (`https://linear.app/<workspace>/issue/ENG-142/<slug>`). Uppercased.
-pub fn issue_ref(arg: &str) -> Option<String> {
-    let id = match arg.strip_prefix("https://linear.app/") {
+/// An issue named on the command line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueRef {
+    /// The identifier, uppercased (ENG-142).
+    pub id: String,
+    /// The workspace's URL key, when given as a URL (`northwind`).
+    pub workspace: Option<String>,
+}
+
+/// The issue `arg` names: ENG-142 itself, or a Linear issue URL
+/// (`https://linear.app/<workspace>/issue/ENG-142/<slug>`).
+pub fn issue_ref(arg: &str) -> Option<IssueRef> {
+    let (id, workspace) = match arg.strip_prefix("https://linear.app/") {
         Some(rest) => {
             let path = rest.split(['?', '#']).next().unwrap_or_default();
             let mut parts = path.split('/');
@@ -105,16 +114,16 @@ pub fn issue_ref(arg: &str) -> Option<String> {
             if workspace.is_empty() || kind != "issue" {
                 return None;
             }
-            parts.next()?
+            (parts.next()?, Some(workspace.to_string()))
         }
-        None => arg,
+        None => (arg, None),
     };
     let (team, number) = id.split_once('-')?;
     let ok = team.starts_with(|c: char| c.is_ascii_alphabetic())
         && team.chars().all(|c| c.is_ascii_alphanumeric())
         && !number.is_empty()
         && number.chars().all(|c| c.is_ascii_digit());
-    ok.then(|| id.to_ascii_uppercase())
+    ok.then(|| IssueRef { id: id.to_ascii_uppercase(), workspace })
 }
 
 /// What `describe` lacks for these views; empty when linearctl will do.
@@ -358,6 +367,8 @@ pub struct App {
     pub can_watch: bool,
     /// The watch for the view on screen.
     pub live: Option<Live>,
+    /// An issue from a URL, to open once `auth status` shows its workspace.
+    pending_open: Option<IssueRef>,
     watch_generation: u64,
     watch_retry_at: Option<DateTime<Utc>>,
     /// When the view was last loaded whole.
@@ -399,6 +410,7 @@ impl App {
             can_check_updated: false,
             can_watch: false,
             live: None,
+            pending_open: None,
             watch_generation: 0,
             watch_retry_at: None,
             last_loaded: None,
@@ -492,6 +504,30 @@ impl App {
         };
         let id = row.identifier.clone();
         self.open_id(id)
+    }
+
+    /// Open the issue named on the command line. One from a URL waits for
+    /// `auth status` and opens only in its own workspace: the same
+    /// identifier in another workspace is a different issue.
+    pub fn open_ref(&mut self, r: IssueRef) -> Vec<Effect> {
+        if r.workspace.is_none() {
+            return self.open_id(r.id);
+        }
+        self.pending_open = Some(r);
+        if self.auth.is_some() { self.open_pending() } else { Vec::new() }
+    }
+
+    fn open_pending(&mut self) -> Vec<Effect> {
+        let (Some(r), Some(a)) = (self.pending_open.take(), &self.auth) else {
+            return Vec::new();
+        };
+        let key = &a.organization.url_key;
+        let workspace = r.workspace.unwrap_or_default();
+        if workspace.eq_ignore_ascii_case(key) {
+            return self.open_id(r.id);
+        }
+        self.status = Some(format!("{} is in workspace {workspace}; linearctl is logged in to {key}", r.id));
+        Vec::new()
     }
 
     /// Open an issue by identifier, whether or not the list shows it.
@@ -591,10 +627,13 @@ impl App {
             Msg::Tick => self.on_tick(),
             Msg::Authed(Ok(a)) => {
                 self.auth = Some(a);
-                Vec::new()
+                self.open_pending()
             }
             Msg::Authed(Err(f)) => {
-                self.status = Some(f.message());
+                self.status = Some(match self.pending_open.take() {
+                    Some(r) => format!("not opening {}: cannot tell its workspace: {}", r.id, f.message()),
+                    None => f.message(),
+                });
                 Vec::new()
             }
         }
@@ -994,7 +1033,7 @@ mod tests {
             ("https://linear.app/northwind/issue/ENG-142?x=1", "ENG-142"),
             ("https://linear.app/northwind/issue/ENG-142#comment-1", "ENG-142"),
         ] {
-            assert_eq!(issue_ref(arg).as_deref(), Some(id), "{arg}");
+            assert_eq!(issue_ref(arg).map(|r| r.id).as_deref(), Some(id), "{arg}");
         }
         for arg in [
             "",
@@ -1013,6 +1052,58 @@ mod tests {
         ] {
             assert_eq!(issue_ref(arg), None, "{arg}");
         }
+    }
+
+    #[test]
+    fn issue_ref_keeps_the_workspace() {
+        let r = issue_ref("https://linear.app/northwind/issue/eng-142/x").unwrap();
+        assert_eq!(r.workspace.as_deref(), Some("northwind"));
+        assert_eq!(issue_ref("ENG-142").unwrap().workspace, None);
+    }
+
+    /// Answer every request in `queue`, recursively.
+    fn settle(app: &mut App, mut queue: Vec<Effect>) {
+        while let Some(fx) = queue.pop() {
+            if matches!(fx, Effect::Run(_)) {
+                queue.extend(app.update(answer(&fx)));
+            }
+        }
+    }
+
+    #[test]
+    fn an_issue_url_opens_only_in_its_workspace() {
+        let url = |w: &str| issue_ref(&format!("https://linear.app/{w}/issue/ENG-131")).unwrap();
+        // Before auth status answers: wait for it.
+        let mut app = App::new(default_views(), now());
+        let start = app.start();
+        assert!(app.open_ref(url("Northwind")).is_empty());
+        assert!(app.detail.is_none());
+        settle(&mut app, start);
+        assert_eq!(app.detail.as_ref().unwrap().id, "ENG-131", "url keys ignore case");
+        assert_eq!(app.focus, Focus::Detail);
+
+        // After it: at once.
+        let mut app = started();
+        let fx = app.open_ref(url("northwind"));
+        settle(&mut app, fx);
+        assert_eq!(app.detail.as_ref().unwrap().id, "ENG-131");
+
+        // Another workspace's ENG-131 is not this one's.
+        let mut app = started();
+        assert!(app.open_ref(url("acme")).is_empty());
+        assert!(app.detail.is_none());
+        assert_eq!(app.focus, Focus::List);
+        assert_eq!(
+            app.status.as_deref(),
+            Some("ENG-131 is in workspace acme; linearctl is logged in to northwind")
+        );
+
+        // No auth status, no way to tell.
+        let mut app = App::new(default_views(), now());
+        app.open_ref(url("northwind"));
+        app.update(Msg::Authed(Err(Failure::Failed("gone".into()))));
+        assert!(app.detail.is_none());
+        assert!(app.status.as_deref().unwrap().starts_with("not opening ENG-131: cannot tell its workspace"));
     }
 
     #[test]

@@ -482,7 +482,10 @@ Install: `herdr plugin install solcreek/linear-tui/herdr-plugin`, or
 
 - `linear-tui ISSUE` opens that issue first; ISSUE is an identifier (`ENG-142`)
   or its `linear.app/<workspace>/issue/ENG-142/…` URL. Anything else is a usage
-  error, so a URL that is not an issue never starts the TUI.
+  error, so a URL that is not an issue never starts the TUI. A URL's issue opens
+  once `auth status` shows its workspace is the one linearctl is logged in to;
+  another workspace's ENG-142 is a different issue, so it is refused with a
+  status line naming both.
 - Pane `tui` runs linear-tui; actions `open` (the issue list) and `open-link`
   open it as an overlay over the focused pane, so `esc`/`q` returns to it.
 - Link handler `issue` sends Ctrl+clicks on Linear issue URLs to `open-link`,

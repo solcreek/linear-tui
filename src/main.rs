@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use linear_tui::app::{App, EditFor, Effect, Msg, default_views, issue_ref, missing};
+use linear_tui::app::{App, EditFor, Effect, IssueRef, Msg, default_views, issue_ref, missing};
 use linear_tui::contract::Describe;
 use linear_tui::ctl::{Exec, Runner, Serve, WatchLine, Watcher};
 use linear_tui::images::{self, DiskCache, Loader};
@@ -51,7 +51,7 @@ struct Options {
     images: Images,
     cell: Option<(u16, u16)>,
     /// The issue to open first.
-    issue: Option<String>,
+    issue: Option<IssueRef>,
 }
 
 fn parse(args: &[String]) -> Result<Option<Options>, String> {
@@ -267,7 +267,7 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
     app.can_watch = linear_tui::app::can_watch(describe);
     let mut start = app.start();
     if let Some(id) = &opts.issue {
-        start.extend(app.open_id(id.clone()));
+        start.extend(app.open_ref(id.clone()));
     }
     let mut edits = fx.start(start);
     let mut tick = std::time::Instant::now();
