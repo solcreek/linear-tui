@@ -67,15 +67,36 @@ rest. The demo takes no writes, but shows every dry run and confirm dialog.
 ## herdr
 
 In [herdr](https://herdr.dev), the plugin in `herdr-plugin/` opens linear-tui
-over the focused pane, and Ctrl+click on a Linear issue link opens the issue
-there instead of in the browser:
+over the focused pane, beside it, or in a popup, and Ctrl+click on a Linear
+issue link opens the issue there instead of in the browser.
+
+![herdr with a project on its ENG-142 branch: git log on the left, and linear-tui in a split on the right showing ENG-142 with its screenshot drawn inline](docs/images/herdr-split.png)
+
+![The linear-tui popup over a herdr workspace, on the Active view](docs/images/herdr-popup.png)
 
 ```sh
 herdr plugin install solcreek/linear-tui/herdr-plugin
+herdr plugin action invoke solcreek.linear-tui.demo   # the demo workspace, no account
 ```
 
 It needs `linear-tui` and `linearctl` on `PATH` or in `~/.cargo/bin`, `~/go/bin`
 or Homebrew's bin; or set `LINEAR_TUI_BIN` and `LINEARCTL` in herdr's environment.
+
+The actions are `solcreek.linear-tui.open` (over the focused pane),
+`.open-split`, `.popup`, `.demo` and `.open-link` (the link handler's). Bind
+one in `~/.config/herdr/config.toml`:
+
+```toml
+[[keys.command]]
+key = "prefix+alt+l"
+type = "plugin_action"
+command = "solcreek.linear-tui.open"
+description = "Linear"
+```
+
+Images inside herdr need `LINEAR_TUI_ARGS="--images kitty"` in herdr's
+environment (detection cannot see past herdr to your terminal); they show over
+the pane and in a split, but not in a popup.
 
 ## Tests
 
@@ -91,3 +112,5 @@ matching LLVM: `LLVM_COV=$(brew --prefix llvm@22)/bin/llvm-cov`
 
 Screenshots: `scripts/screenshots.sh` drives `--demo` in tmux, records what it
 writes (kitty graphics included) and renders that with termshot (`TERMSHOT=/path/to/termshot` if it is not on `PATH`).
+`scripts/herdr-screenshots.sh` does the same for the herdr plugin, in a herdr
+of its own that shares nothing with yours.

@@ -3,16 +3,27 @@ name = "linear-tui"
 version = "0.1.0"
 # Panes opened with --env; tested against a 0.9.1 server.
 min_herdr_version = "0.9.1"
-description = "Linear in a pane: browse issues, and Ctrl+click a Linear issue link to open it in linear-tui."
+description = "Linear in a pane: browse issues, and Ctrl+click a Linear issue link to open it in linear-tui. Try it with no account: the demo action."
 platforms = ["linux", "macos"]
 
 # open.sh resolves the binaries (herdr starts panes with a short PATH) and
-# passes the issue to open, if any, in LINEAR_TUI_ISSUE.
+# passes the issue to open, if any, in LINEAR_TUI_ISSUE; LINEAR_TUI_DEMO for
+# the demo; LINEAR_TUI_ARGS for anything else (e.g. "--images kitty").
 [[panes]]
 id = "tui"
 title = "linear-tui"
 placement = "overlay"
-command = ["sh", "-c", "exec \"${LINEAR_TUI_BIN:-linear-tui}\" ${LINEAR_TUI_ISSUE:+\"$LINEAR_TUI_ISSUE\"}"]
+command = ["sh", "-c", "exec \"${LINEAR_TUI_BIN:-linear-tui}\" ${LINEAR_TUI_ARGS:-} ${LINEAR_TUI_DEMO:+--demo} ${LINEAR_TUI_ISSUE:+\"$LINEAR_TUI_ISSUE\"}"]
+
+# The same as a popup. herdr does not pass terminal graphics through one, so
+# it shows no images.
+[[panes]]
+id = "popup"
+title = "linear-tui"
+placement = "popup"
+width = "90%"
+height = "85%"
+command = ["sh", "-c", "exec \"${LINEAR_TUI_BIN:-linear-tui}\" ${LINEAR_TUI_ARGS:-} ${LINEAR_TUI_DEMO:+--demo} ${LINEAR_TUI_ISSUE:+\"$LINEAR_TUI_ISSUE\"}"]
 
 [[actions]]
 id = "open"
@@ -20,6 +31,26 @@ title = "linear-tui: open"
 description = "Open linear-tui over the focused pane"
 contexts = ["pane", "workspace"]
 command = ["sh", "open.sh"]
+
+[[actions]]
+id = "open-split"
+title = "linear-tui: open in a split"
+description = "Open linear-tui beside the focused pane"
+contexts = ["pane", "workspace"]
+command = ["sh", "open.sh", "list", "split"]
+
+[[actions]]
+id = "popup"
+title = "linear-tui: open in a popup"
+contexts = ["pane", "workspace"]
+command = ["sh", "open.sh", "list", "popup"]
+
+[[actions]]
+id = "demo"
+title = "linear-tui: demo (fictional workspace)"
+description = "Browse a made-up workspace; needs no Linear account"
+contexts = ["pane", "workspace"]
+command = ["sh", "open.sh", "demo"]
 
 [[actions]]
 id = "open-link"

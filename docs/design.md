@@ -488,6 +488,13 @@ Install: `herdr plugin install solcreek/linear-tui/herdr-plugin`, or
   status line naming both.
 - Pane `tui` runs linear-tui; actions `open` (the issue list) and `open-link`
   open it as an overlay over the focused pane, so `esc`/`q` returns to it.
+  `open-split` opens it beside the pane instead, `popup` in pane `popup`
+  (herdr passes no terminal graphics through a popup, so no images there), and
+  `demo` on the fictional workspace (`LINEAR_TUI_DEMO`).
+- `LINEAR_TUI_ARGS` in herdr's environment adds arguments: image detection
+  cannot see past herdr to the terminal, so images need `--images kitty`.
+  `scripts/herdr-screenshots.sh` renders the README's herdr screenshots in a
+  herdr with its own `HOME`, server and tmux.
 - Link handler `issue` sends Ctrl+clicks on Linear issue URLs to `open-link`,
   which opens a fresh pane on that issue (`HERDR_PLUGIN_CLICKED_URL`).
 - herdr starts plugin commands with a short PATH, so `open.sh` looks in the
