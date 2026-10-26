@@ -119,7 +119,7 @@ name, **the linearctl command** for this view or action), `Tab` next view.
  Northwind · My issues      assignee:me state-type:started,unstarted    ⟳ 2m ago
  ─────────────────────────────────────────────────────────────────────────────
  !!! ENG-142  In Progress  Render issue images inline with the Kitty protocol  MP  Feature
-   !! ENG-139  Todo         …
+  !! ENG-139  Todo         …
  ─────────────────────────────────────────────────────────────────────────────
  25 of 25+ · j/k move · ⏎ open · / filter · f filters · c new · ? help
 ```
