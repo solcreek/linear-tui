@@ -32,11 +32,19 @@ fn argv(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| (*w).to_string()).collect()
 }
 
+/// The row fields with linearctl 0.6.0's estimate and due date.
+pub const ROW_FIELDS_0_6: &str = "id,identifier,title,priority,priorityLabel,url,createdAt,updatedAt,state,assignee,team,project,cycle,labels,estimate,dueDate";
+
 /// One page of a view: its filter flags, then paging and fields.
 pub fn list_argv(view: &[String], limit: usize, cursor: Option<&str>) -> Vec<String> {
+    list_argv_with(view, limit, cursor, ROW_FIELDS)
+}
+
+/// The same, asking for these row fields.
+pub fn list_argv_with(view: &[String], limit: usize, cursor: Option<&str>, fields: &str) -> Vec<String> {
     let mut a = argv(&["issue", "list"]);
     a.extend(view.iter().cloned());
-    a.extend(argv(&["--limit", &limit.to_string(), "--fields", ROW_FIELDS]));
+    a.extend(argv(&["--limit", &limit.to_string(), "--fields", fields]));
     if let Some(c) = cursor {
         a.extend(argv(&["--cursor", c]));
     }

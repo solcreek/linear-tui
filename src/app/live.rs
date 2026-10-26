@@ -337,7 +337,7 @@ mod tests {
             matches!(&fx[..], [Effect::Watch { generation: 2, argv }] if argv.contains(&"started".to_string()))
         );
         // Reloading the same view keeps its watch.
-        assert!(key(&mut app, KeyCode::Char('r')).is_empty());
+        assert!(key(&mut app, KeyCode::F(5)).is_empty());
         key(&mut app, KeyCode::Char('/'));
         for c in "coupon".chars() {
             key(&mut app, KeyCode::Char(c));

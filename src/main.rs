@@ -218,6 +218,12 @@ impl Effects {
                     }
                 }
                 Effect::StopWatch => self.watcher = None,
+                Effect::Copy(text) => {
+                    // OSC 52: the terminal puts it on the clipboard, over SSH too.
+                    let seq = format!("\x1b]52;c;{}\x07", linear_tui::clip::base64(text.as_bytes()));
+                    let _ = std::io::Write::write_all(&mut std::io::stdout(), seq.as_bytes());
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                }
                 Effect::Open(url) => {
                     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
                     let _ = Command::new(opener).arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn();

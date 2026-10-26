@@ -231,6 +231,8 @@ pub enum Effect {
     Open(String),
     /// Fetch and decode an image (an upload URL); answered by `Msg::Image`.
     FetchImage(String),
+    /// Put `text` on the clipboard (OSC 52, so over SSH too).
+    Copy(String),
     /// Open `$EDITOR` on `text`; answered by `Msg::Edited`.
     Edit {
         purpose: EditFor,
@@ -383,6 +385,8 @@ pub struct App {
     pub can_reply: bool,
     /// What `u` reverts: the last write, when it can be.
     pub undo: Option<Undo>,
+    /// `g` was pressed: the next key says where to go.
+    pending_g: bool,
     /// The issue whose edit form opens once it has loaded.
     pending_edit: Option<String>,
     /// The filter panel, while open.
@@ -444,6 +448,7 @@ impl App {
             config: None,
             filters: None,
             pending_edit: None,
+            pending_g: false,
             filtered: None,
             live: None,
             pending_open: None,
@@ -518,6 +523,62 @@ impl App {
         }
     }
 
+    /// The row fields to ask for: estimate and due date from linearctl 0.6.0.
+    fn row_fields(&self) -> &'static str {
+        if self.at_least(0, 6) { ctl::ROW_FIELDS_0_6 } else { ctl::ROW_FIELDS }
+    }
+
+    /// The view named `name` (any case), for `g` then a letter.
+    fn go_to(&mut self, name: &str) -> Vec<Effect> {
+        match self.views.iter().position(|v| v.name.eq_ignore_ascii_case(name)) {
+            Some(i) => {
+                self.focus = Focus::List;
+                self.filtered = None;
+                self.search = None;
+                if i == self.view {
+                    return Vec::new();
+                }
+                self.switch_view(i)
+            }
+            None => {
+                self.notice = Some(format!("No view named \"{name}\"."));
+                Vec::new()
+            }
+        }
+    }
+
+    /// The key after `g`: `g g` top, `g m` / `g a` / `g t` a view, as in Linear.
+    fn after_g(&mut self, k: KeyEvent) -> Vec<Effect> {
+        match k.code {
+            KeyCode::Char('g') => match self.focus {
+                Focus::Detail => {
+                    if let Some(d) = self.detail.as_mut() {
+                        d.scroll = 0;
+                    }
+                    Vec::new()
+                }
+                Focus::List => self.move_to(0),
+            },
+            KeyCode::Char('m') => self.go_to("My issues"),
+            KeyCode::Char('a') => self.go_to("Active"),
+            KeyCode::Char('t') => self.go_to("Triage"),
+            _ => Vec::new(),
+        }
+    }
+
+    /// `F`: drop the local filter and any applied filter or saved view.
+    fn clear_filters(&mut self) -> Vec<Effect> {
+        self.filter.clear();
+        if self.filtered.take().is_none() {
+            return Vec::new();
+        }
+        self.notice = Some("Filters cleared.".into());
+        self.rows.clear();
+        self.selected = 0;
+        self.next_cursor = None;
+        self.load_view()
+    }
+
     /// Whether linearctl is at least this version (all of them, when unknown).
     pub fn at_least(&self, major: u32, minor: u32) -> bool {
         let Some(d) = &self.describe else { return true };
@@ -553,7 +614,7 @@ impl App {
     fn load_view(&mut self) -> Vec<Effect> {
         self.generation += 1;
         self.loading = true;
-        let argv = ctl::list_argv(&self.list_args(), PAGE, None);
+        let argv = ctl::list_argv_with(&self.list_args(), PAGE, None, self.row_fields());
         vec![Effect::Run(Request::List { generation: self.generation, argv, append: false })]
     }
 
@@ -561,7 +622,7 @@ impl App {
         match (&self.next_cursor, self.loading) {
             (Some(c), false) => {
                 self.loading = true;
-                let argv = ctl::list_argv(&self.list_args(), PAGE, Some(c));
+                let argv = ctl::list_argv_with(&self.list_args(), PAGE, Some(c), self.row_fields());
                 vec![Effect::Run(Request::List { generation: self.generation, argv, append: true })]
             }
             _ => Vec::new(),
@@ -810,7 +871,25 @@ impl App {
         fx
     }
 
+    /// Keys that work the same in the list and the detail.
+    fn common_key(&mut self, k: KeyEvent, ctrl: bool) -> Option<Vec<Effect>> {
+        match k.code {
+            KeyCode::Char('g') if !ctrl => {
+                self.pending_g = true;
+                Some(Vec::new())
+            }
+            KeyCode::Char('z') if ctrl => Some(self.start_undo()),
+            _ => None,
+        }
+    }
+
     fn list_key(&mut self, k: KeyEvent, ctrl: bool) -> Vec<Effect> {
+        if std::mem::take(&mut self.pending_g) {
+            return self.after_g(k);
+        }
+        if let Some(fx) = self.common_key(k, ctrl) {
+            return fx;
+        }
         if !ctrl && let Some(fx) = self.issue_action(k) {
             return fx;
         }
@@ -841,7 +920,7 @@ impl App {
             KeyCode::Char('u') if ctrl => return self.step(-10),
             KeyCode::PageDown => return self.step(10),
             KeyCode::PageUp => return self.step(-10),
-            KeyCode::Char('g') | KeyCode::Home => return self.move_to(0),
+            KeyCode::Home => return self.move_to(0),
             KeyCode::Char('G') | KeyCode::End => return self.move_to(usize::MAX),
             KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => return self.open(),
             KeyCode::Tab => return self.switch_view((self.view + 1) % self.views.len()),
@@ -849,16 +928,21 @@ impl App {
                 return self.switch_view((self.view + self.views.len() - 1) % self.views.len());
             }
             KeyCode::Char(c @ '1'..='9') => return self.switch_view(c as usize - '1' as usize),
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') if ctrl => {
+                self.selected = 0;
+                return self.load_view();
+            }
+            KeyCode::F(5) => {
                 self.selected = 0;
                 return self.load_view();
             }
             KeyCode::Char('/') => self.filtering = true,
             KeyCode::Char('n') => return self.load_more(),
-            KeyCode::Char('o') => return self.cycle_sort(),
+            KeyCode::Char('D') => return self.cycle_sort(),
             KeyCode::Char('f') => return self.open_filters(),
+            KeyCode::Char('F') => return self.clear_filters(),
             KeyCode::Char('V') => return self.open_saved_views(),
-            KeyCode::Char('O') => {
+            KeyCode::Char('o') => {
                 if let Some(r) = self.selected_row() {
                     return vec![Effect::Open(r.url.clone())];
                 }
@@ -869,6 +953,15 @@ impl App {
     }
 
     fn detail_key(&mut self, k: KeyEvent, ctrl: bool) -> Vec<Effect> {
+        if std::mem::take(&mut self.pending_g) {
+            return self.after_g(k);
+        }
+        if let Some(fx) = self.common_key(k, ctrl) {
+            return fx;
+        }
+        if ctrl && k.code == KeyCode::Char('e') {
+            return self.edit_description();
+        }
         if !ctrl && let Some(fx) = self.issue_action(k) {
             return fx;
         }
@@ -887,28 +980,34 @@ impl App {
             KeyCode::Char('u') if ctrl => scroll(d, -10),
             KeyCode::PageDown | KeyCode::Char(' ') => scroll(d, 20),
             KeyCode::PageUp => scroll(d, -20),
-            KeyCode::Char('g') | KeyCode::Home => d.scroll = 0,
+            KeyCode::Home => d.scroll = 0,
             KeyCode::Char('G') | KeyCode::End => d.scroll = u16::MAX,
-            KeyCode::Char(']') => {
+            // Next and previous issue, as J and K in linear-tui elsewhere.
+            KeyCode::Char('J') => {
                 let mut fx = self.step(1);
                 fx.extend(self.open());
                 return fx;
             }
-            KeyCode::Char('[') => {
+            KeyCode::Char('K') => {
                 let mut fx = self.step(-1);
                 fx.extend(self.open());
                 return fx;
             }
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') if ctrl => {
                 let id = d.id.clone();
                 self.cache.remove(&id);
                 return vec![Effect::Run(Request::Show { argv: ctl::show_argv(&id), id })];
             }
-            KeyCode::Char('i') => {
+            KeyCode::F(5) => {
+                let id = d.id.clone();
+                self.cache.remove(&id);
+                return vec![Effect::Run(Request::Show { argv: ctl::show_argv(&id), id })];
+            }
+            KeyCode::Char('I') => {
                 self.images_on = !self.images_on;
                 return self.image_effects();
             }
-            KeyCode::Char('O') => {
+            KeyCode::Char('o') => {
                 if let Some(i) = &d.issue {
                     return vec![Effect::Open(i.row.url.clone())];
                 }
@@ -1001,6 +1100,7 @@ mod tests {
         drive(&mut app, ch('j'));
         assert_eq!(app.selected, 3);
         drive(&mut app, ch('g'));
+        drive(&mut app, ch('g'));
         drive(&mut app, ch('k'));
         assert_eq!(app.selected, 0);
         drive(&mut app, ctrl('d'));
@@ -1012,6 +1112,40 @@ mod tests {
         drive(&mut app, key(KeyCode::Home));
         drive(&mut app, key(KeyCode::Up));
         assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn g_then_a_letter_goes_to_a_view() {
+        let mut app = started();
+        drive(&mut app, ch('g'));
+        drive(&mut app, ch('a'));
+        assert_eq!(app.views[app.view].name, "Active");
+        drive(&mut app, ch('g'));
+        drive(&mut app, ch('t'));
+        assert_eq!(app.views[app.view].name, "Triage");
+        drive(&mut app, ch('g'));
+        drive(&mut app, ch('m'));
+        assert_eq!(app.view, 0);
+        assert!(drive(&mut app, ch('g')).is_empty());
+        assert!(drive(&mut app, ch('m')).is_empty(), "already there");
+        drive(&mut app, ch('g'));
+        assert!(drive(&mut app, ch('z')).is_empty(), "an unknown second key does nothing");
+        app.views.retain(|v| v.name != "Triage");
+        drive(&mut app, ch('g'));
+        drive(&mut app, ch('t'));
+        assert_eq!(app.notice.as_deref(), Some("No view named \"Triage\"."));
+    }
+
+    #[test]
+    fn shift_f_clears_the_filters() {
+        let mut app = started();
+        assert!(drive(&mut app, ch('F')).is_empty(), "nothing to clear");
+        search_for(&mut app, "coupon");
+        app.filtered = Some(View::new("Filtered", &["--label", "Bug"]));
+        let fx = drive(&mut app, ch('F'));
+        assert!(matches!(&fx[0], Effect::Run(Request::List { .. })));
+        assert_eq!(app.notice.as_deref(), Some("Filters cleared."));
+        assert!(app.filtered.is_none() && app.filter.is_empty());
     }
 
     #[test]
@@ -1027,7 +1161,7 @@ mod tests {
         assert_eq!(app.view, 1);
         assert!(drive(&mut app, ch('9')).is_empty(), "no such view");
         assert!(drive(&mut app, ch('2')).is_empty(), "already there");
-        let fx = drive(&mut app, ch('r'));
+        let fx = drive(&mut app, ctrl('r'));
         assert!(matches!(&fx[0], Effect::Run(Request::List { append: false, .. })));
     }
 
@@ -1257,14 +1391,15 @@ mod tests {
         drive(&mut app, key(KeyCode::Home));
         drive(&mut app, key(KeyCode::End));
         drive(&mut app, ch('g'));
+        drive(&mut app, ch('g'));
         assert_eq!(scroll(&app), 0);
-        drive(&mut app, ch(']'));
+        drive(&mut app, ch('J'));
         assert_eq!(app.detail.as_ref().unwrap().id, "ENG-143");
-        drive(&mut app, ch('['));
+        drive(&mut app, ch('K'));
         assert_eq!(app.detail.as_ref().unwrap().id, "ENG-142");
-        let fx = drive(&mut app, ch('r'));
+        let fx = drive(&mut app, ctrl('r'));
         assert!(matches!(&fx[0], Effect::Run(Request::Show { id, .. }) if id == "ENG-142"));
-        let fx = drive(&mut app, ch('O'));
+        let fx = drive(&mut app, ch('o'));
         assert!(matches!(&fx[0], Effect::Open(u) if u.contains("/issue/ENG-142/")));
         assert!(drive(&mut app, ch('z')).is_empty());
     }
@@ -1280,11 +1415,11 @@ mod tests {
     #[test]
     fn open_in_browser_from_the_list() {
         let mut app = started();
-        assert!(matches!(&drive(&mut app, ch('O'))[0], Effect::Open(u) if u.contains("ENG-142")));
+        assert!(matches!(&drive(&mut app, ch('o'))[0], Effect::Open(u) if u.contains("ENG-142")));
         drive(&mut app, ch('/'));
         drive(&mut app, ch('#'));
         drive(&mut app, key(KeyCode::Up));
-        assert!(drive(&mut app, ch('O')).is_empty(), "nothing selected");
+        assert!(drive(&mut app, ch('o')).is_empty(), "nothing selected");
         assert!(drive(&mut app, key(KeyCode::Enter)).is_empty());
         assert!(drive(&mut app, ch('j')).is_empty());
         assert!(drive(&mut app, ch('z')).is_empty());
@@ -1293,7 +1428,7 @@ mod tests {
     #[test]
     fn failures_go_to_the_status_bar() {
         let mut app = started();
-        let fx = app.update(ch('r'));
+        let fx = app.update(ctrl('r'));
         let Effect::Run(Request::List { generation, .. }) = fx[0] else { panic!() };
         app.update(Msg::Listed {
             generation,
@@ -1388,7 +1523,7 @@ mod tests {
     fn images_can_be_turned_off_and_on() {
         let mut app = started();
         app.update(key(KeyCode::Enter));
-        app.update(ch('i'));
+        app.update(ch('I'));
         assert!(!app.images_on);
         let fx = app.update(key(KeyCode::Enter));
         assert!(fx.is_empty(), "nothing to do: already open");
@@ -1397,7 +1532,7 @@ mod tests {
         let fx = app2.update(key(KeyCode::Enter));
         app2.images_on = false;
         assert!(app2.update(answer(&fx[0])).is_empty());
-        let fx = app2.update(ch('i'));
+        let fx = app2.update(ch('I'));
         assert_eq!(fx.len(), 1, "turning images on fetches them");
     }
 
@@ -1451,20 +1586,20 @@ mod tests {
     }
 
     #[test]
-    fn o_cycles_the_order() {
+    fn d_cycles_the_order() {
         let mut app = started();
         assert_eq!(app.order().as_deref(), Some("priority"), "My issues sorts by priority");
         // linearctl 0.6.0 (or unknown): six orders.
         let mut seen = Vec::new();
         for _ in 0..6 {
-            let fx = drive(&mut app, ch('o'));
+            let fx = drive(&mut app, ch('D'));
             assert!(matches!(&fx[0], Effect::Run(Request::List { argv, .. })
                 if argv.iter().filter(|a| *a == "--sort").count() == 1));
             seen.push(app.order().unwrap());
         }
         assert_eq!(seen, ["due-date", "title", "state", "updated", "created", "priority"]);
         assert_eq!(app.notice.as_deref(), Some("Sorted by priority"));
-        drive(&mut app, ch('o'));
+        drive(&mut app, ch('D'));
         assert_eq!(ids(&app)[0], "ENG-140", "the one with a due date first");
         // An older linearctl: the first three.
         let old = include_str!("../tests/fixtures/linearctl-describe-0.1.0.json");
@@ -1475,24 +1610,24 @@ mod tests {
             Some("updated"),
             "a view without --sort; a new view drops the choice"
         );
-        drive(&mut app, ch('o'));
+        drive(&mut app, ch('D'));
         assert_eq!(app.order().as_deref(), Some("created"));
         assert_eq!(ids(&app)[0], "ENG-158");
-        drive(&mut app, ch('o'));
-        drive(&mut app, ch('o'));
+        drive(&mut app, ch('D'));
+        drive(&mut app, ch('D'));
         assert_eq!(app.order().as_deref(), Some("updated"));
         // A search is by relevance until sorted, and only by the first three.
         app.describe = None;
         search_for(&mut app, "coupon");
         assert_eq!(app.order().as_deref(), None);
-        let fx = drive(&mut app, ch('o'));
+        let fx = drive(&mut app, ch('D'));
         assert!(
             matches!(&fx[0], Effect::Run(Request::List { argv, .. }) if argv.contains(&"--query".to_string()))
         );
         assert_eq!(app.order().as_deref(), Some("updated"));
-        drive(&mut app, ch('o'));
-        drive(&mut app, ch('o'));
-        drive(&mut app, ch('o'));
+        drive(&mut app, ch('D'));
+        drive(&mut app, ch('D'));
+        drive(&mut app, ch('D'));
         assert_eq!(app.order().as_deref(), Some("updated"));
     }
 

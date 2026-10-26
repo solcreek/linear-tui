@@ -97,6 +97,9 @@ pub struct IssueRow {
     pub project: Option<Project>,
     pub cycle: Option<Cycle>,
     pub labels: Vec<Label>,
+    /// linearctl 0.6.0 and later.
+    pub estimate: Option<f64>,
+    pub due_date: Option<String>,
 }
 
 /// Another issue, as a parent, child or relation names it.

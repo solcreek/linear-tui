@@ -167,6 +167,15 @@ pub struct Confirm {
 pub enum Overlay {
     Pick(Box<PickList>),
     Confirm(Box<Confirm>),
+    /// `r`: a new title being typed.
+    Rename(Box<Rename>),
+}
+
+/// The rename box: the issue and the title as typed so far.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rename {
+    pub issue: IssueRow,
+    pub text: String,
 }
 
 /// The create form's fields, in order.
@@ -437,7 +446,10 @@ impl App {
             }
             // Only the form sets these (linearctl 0.6.0).
             Field::Cycle => {
-                let current = form.and_then(|f| f.cycle.clone());
+                let current = match issue {
+                    Some(i) => i.cycle.as_ref().map(|c| c.number.to_string()),
+                    None => form.and_then(|f| f.cycle.clone()),
+                };
                 let on = |v: &str| current.as_deref() == Some(v);
                 let mut v = vec![
                     item("No cycle", "", None, "", current.is_none()),
@@ -451,7 +463,10 @@ impl App {
                 v
             }
             Field::Estimate => {
-                let current = form.and_then(|f| f.estimate);
+                let current = match issue {
+                    Some(i) => i.estimate.map(|e| e.round() as i64),
+                    None => form.and_then(|f| f.estimate),
+                };
                 let mut v = vec![item("No estimate", "", None, "", current.is_none())];
                 let mut points = vec![1, 2, 3, 5, 8];
                 if let Some(c) = current.filter(|c| !points.contains(c)) {
@@ -547,16 +562,23 @@ impl App {
             KeyCode::Char('a') => Some(Field::Assignee),
             KeyCode::Char('L') => Some(Field::Labels),
             KeyCode::Char('P') => Some(Field::Project),
+            // Shift+C and Shift+E, as in Linear: linearctl 0.6.0.
+            KeyCode::Char('C') => Some(Field::Cycle),
+            KeyCode::Char('E') => Some(Field::Estimate),
             _ => None,
         };
         if let Some(field) = field {
             let issue = self.target_issue()?;
+            if matches!(field, Field::Cycle | Field::Estimate) && !self.at_least(0, 6) {
+                self.status = Some("Cycle and estimate need linearctl 0.6.0 or later.".into());
+                return Some(Vec::new());
+            }
             return Some(self.open_picker(Target::Issue { issue: Box::new(issue), field }));
         }
         match k.code {
             KeyCode::Char('u') => Some(self.start_undo()),
             KeyCode::Char('e') => Some(self.open_edit()),
-            KeyCode::Char('A') => {
+            KeyCode::Char('i') => {
                 let issue = self.target_issue()?;
                 let back = issue.assignee.as_ref().map_or("none".to_string(), |a| a.email.clone());
                 let undo = Some(vec![("assignee".to_string(), back)]);
@@ -569,7 +591,44 @@ impl App {
                 let purpose = Purpose::Archive { issue: issue.identifier };
                 Some(vec![Effect::Run(Request::Write { purpose, argv, text: None, summary })])
             }
-            KeyCode::Char('c') if self.focus == Focus::Detail => {
+            KeyCode::Char('r') => {
+                let issue = self.target_issue()?;
+                self.overlay = Some(Overlay::Rename(Box::new(Rename { text: issue.title.clone(), issue })));
+                Some(Vec::new())
+            }
+            KeyCode::Char('y') => {
+                let issue = self.target_issue()?;
+                self.notice = Some(format!("Copied {}", issue.identifier));
+                Some(vec![Effect::Copy(issue.identifier)])
+            }
+            KeyCode::Char('Y') => {
+                let issue = self.target_issue()?;
+                self.notice = Some(format!("Copied the URL of {}", issue.identifier));
+                Some(vec![Effect::Copy(issue.url)])
+            }
+            KeyCode::Char('b') => {
+                let issue = self.target_issue()?;
+                let branch =
+                    self.cache.get(&issue.identifier).and_then(|d| d.branch_name.clone()).or_else(|| {
+                        self.detail
+                            .as_ref()
+                            .and_then(|d| d.issue.as_ref())
+                            .filter(|d| d.row.id == issue.id)?
+                            .branch_name
+                            .clone()
+                    });
+                match branch {
+                    Some(b) => {
+                        self.notice = Some(format!("Copied {b}"));
+                        Some(vec![Effect::Copy(b)])
+                    }
+                    None => {
+                        self.notice = Some("Open the issue to copy its branch name.".into());
+                        Some(Vec::new())
+                    }
+                }
+            }
+            KeyCode::Char('m') => {
                 let issue = self.target_issue()?.identifier;
                 Some(vec![Effect::Edit { purpose: EditFor::Comment { issue }, text: String::new() }])
             }
@@ -596,21 +655,6 @@ impl App {
                     _ => Some(self.open_picker(Target::Reply { issue })),
                 }
             }
-            KeyCode::Char('E') if self.focus == Focus::Detail => {
-                let d = self.detail.as_ref()?.issue.as_ref()?;
-                let issue = d.row.identifier.clone();
-                // As stored in Linear: without the signatures the detail was read with.
-                let original = crate::images::unsign(d.description.as_deref().unwrap_or_default());
-                let text = self.drafts.get(&issue).cloned().unwrap_or_else(|| original.clone());
-                if self.drafts.contains_key(&issue) {
-                    self.notice = Some("Editing your unsent draft.".into());
-                }
-                let updated_at = d.row.updated_at.clone();
-                Some(vec![Effect::Edit {
-                    purpose: EditFor::Description { issue, original, updated_at },
-                    text,
-                }])
-            }
             _ => None,
         }
     }
@@ -635,6 +679,21 @@ impl App {
             .collect()
     }
 
+    /// Ctrl+E in an issue: its description in `$EDITOR` (an unsent draft
+    /// first, if there is one).
+    pub(super) fn edit_description(&mut self) -> Vec<Effect> {
+        let Some(d) = self.detail.as_ref().and_then(|d| d.issue.as_ref()) else { return Vec::new() };
+        let issue = d.row.identifier.clone();
+        // As stored in Linear: without the signatures the detail was read with.
+        let original = crate::images::unsign(d.description.as_deref().unwrap_or_default());
+        let text = self.drafts.get(&issue).cloned().unwrap_or_else(|| original.clone());
+        if self.drafts.contains_key(&issue) {
+            self.notice = Some("Editing your unsent draft.".into());
+        }
+        let updated_at = d.row.updated_at.clone();
+        vec![Effect::Edit { purpose: EditFor::Description { issue, original, updated_at }, text }]
+    }
+
     fn open_form(&mut self) -> Vec<Effect> {
         let team = self
             .selected_row()
@@ -651,10 +710,48 @@ impl App {
         match self.overlay.take() {
             Some(Overlay::Pick(p)) => Some(self.pick_key(*p, k)),
             Some(Overlay::Confirm(c)) => Some(self.confirm_key(*c, k)),
+            Some(Overlay::Rename(r)) => Some(self.rename_key(*r, k)),
             None if self.form.is_some() => Some(self.form_key(k)),
             None if self.filters.is_some() => Some(self.filters_key(k)),
             None => None,
         }
+    }
+
+    fn rename_key(&mut self, mut r: Rename, k: KeyEvent) -> Vec<Effect> {
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        match k.code {
+            KeyCode::Esc => return Vec::new(),
+            KeyCode::Enter => {
+                let title = r.text.trim().to_string();
+                if title.is_empty() {
+                    self.status = Some("An issue needs a title.".into());
+                } else if title == r.issue.title {
+                    self.notice = Some("Nothing to change.".into());
+                } else {
+                    let undo = Some(vec![("title".to_string(), r.issue.title.clone())]);
+                    return self.quick(
+                        &r.issue.identifier,
+                        &[("title", &title)],
+                        format!("renamed to {title}"),
+                        undo,
+                    );
+                }
+                return Vec::new();
+            }
+            KeyCode::Backspace => {
+                r.text.pop();
+            }
+            // Readline's delete-a-word and delete-to-start.
+            KeyCode::Char('w') if ctrl => {
+                let keep = r.text.trim_end().rfind(' ').map_or(0, |i| i + 1);
+                r.text.truncate(keep);
+            }
+            KeyCode::Char('u') if ctrl => r.text.clear(),
+            KeyCode::Char(c) if !ctrl => r.text.push(c),
+            _ => {}
+        }
+        self.overlay = Some(Overlay::Rename(Box::new(r)));
+        Vec::new()
     }
 
     fn confirm_key(&mut self, c: Confirm, k: KeyEvent) -> Vec<Effect> {
@@ -763,8 +860,12 @@ impl App {
                     Field::State => "state",
                     Field::Priority => "priority",
                     Field::Assignee => "assignee",
+                    Field::Cycle => "cycle",
+                    Field::Estimate => "estimate",
                     _ => "project",
                 };
+                // "No cycle" and "No estimate" clear it.
+                let value = if item.value.is_empty() { "none".to_string() } else { item.value.clone() };
                 let what = format!("{} → {}", title_of(field).to_lowercase(), item.label);
                 // The old value. Clearing a project needs linearctl 0.6.0
                 // (--project none); before that, setting one is final.
@@ -775,6 +876,12 @@ impl App {
                     Field::Assignee => {
                         Some(issue.assignee.as_ref().map_or("none".into(), |a| a.email.clone()))
                     }
+                    Field::Cycle => {
+                        Some(issue.cycle.as_ref().map_or("none".into(), |c| c.number.to_string()))
+                    }
+                    Field::Estimate => {
+                        Some(issue.estimate.map_or("none".into(), |e| (e.round() as i64).to_string()))
+                    }
                     _ => issue
                         .project
                         .as_ref()
@@ -782,7 +889,7 @@ impl App {
                         .or_else(|| clear.then(|| "none".into())),
                 };
                 let undo = back.map(|b| vec![(flag.to_string(), b)]);
-                self.quick(&issue.identifier, &[(flag, &item.value)], what, undo)
+                self.quick(&issue.identifier, &[(flag, &value)], what, undo)
             }
             Target::Form(field) => {
                 let form = self.form.as_mut().expect("a form picker has a form");
@@ -1282,6 +1389,72 @@ mod tests {
     }
 
     #[test]
+    fn rename_in_place() {
+        let mut w = world("rename");
+        w.key(KeyCode::Char('r'));
+        let Some(Overlay::Rename(r)) = &w.app.overlay else { panic!("{:?}", w.app.overlay) };
+        assert_eq!(r.text, w.row("ENG-142").title);
+        w.ctrl('u');
+        w.key(KeyCode::Enter);
+        assert_eq!(w.app.status.as_deref(), Some("An issue needs a title."));
+        w.key(KeyCode::Char('r'));
+        w.key(KeyCode::Enter);
+        assert_eq!(w.app.notice.as_deref(), Some("Nothing to change."));
+        w.key(KeyCode::Char('r'));
+        w.ctrl('w');
+        w.key(KeyCode::Backspace);
+        w.chars(" now");
+        w.key(KeyCode::Esc);
+        assert!(w.app.overlay.is_none(), "esc leaves the title alone");
+        w.key(KeyCode::Char('r'));
+        w.ctrl('u');
+        w.chars("Coupon codes fail at checkout");
+        w.key(KeyCode::Enter);
+        assert_eq!(
+            w.app.notice.as_deref(),
+            Some("ENG-142: renamed to Coupon codes fail at checkout (u undoes)")
+        );
+        assert_eq!(w.row("ENG-142").title, "Coupon codes fail at checkout");
+        w.ctrl('z');
+        assert_ne!(w.row("ENG-142").title, "Coupon codes fail at checkout", "ctrl-z undoes like u");
+    }
+
+    #[test]
+    fn copy_keys_hand_the_text_to_the_terminal() {
+        let mut w = world("copy");
+        let press =
+            |w: &mut World, c| w.app.update(Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        assert_eq!(press(&mut w, 'y'), [Effect::Copy("ENG-142".into())]);
+        let fx = press(&mut w, 'Y');
+        assert!(matches!(&fx[..], [Effect::Copy(u)] if u.contains("/issue/ENG-142/")), "{fx:?}");
+        assert!(press(&mut w, 'b').is_empty());
+        assert_eq!(w.app.notice.as_deref(), Some("Open the issue to copy its branch name."));
+        w.key(KeyCode::Enter);
+        let fx = press(&mut w, 'b');
+        assert!(matches!(&fx[..], [Effect::Copy(b)] if b.contains("eng-142")), "{fx:?}");
+    }
+
+    #[test]
+    fn cycle_and_estimate_pickers() {
+        let mut w = world("cycle-estimate");
+        w.key(KeyCode::Char('C'));
+        assert!(!w.picker().visible().is_empty());
+        w.key(KeyCode::Esc);
+        w.key(KeyCode::Char('E'));
+        assert!(!w.picker().visible().is_empty());
+        w.key(KeyCode::Esc);
+        w.app.describe = Some(
+            crate::contract::Describe::from_json(include_str!(
+                "../../tests/fixtures/linearctl-describe-0.1.0.json"
+            ))
+            .unwrap(),
+        );
+        w.key(KeyCode::Char('C'));
+        assert!(w.app.overlay.is_none());
+        assert_eq!(w.app.status.as_deref(), Some("Cycle and estimate need linearctl 0.6.0 or later."));
+    }
+
+    #[test]
     fn quick_state_edit_through_a_picker() {
         let mut w = world("state");
         w.key(KeyCode::Char('s'));
@@ -1387,11 +1560,11 @@ mod tests {
     #[test]
     fn assign_to_me_and_archive() {
         let mut w = world("archive");
-        w.key(KeyCode::Char('A'));
+        w.key(KeyCode::Char('i'));
         assert_eq!(w.app.notice.as_deref(), Some("Nothing to change."), "ENG-142 is already mine");
         w.key(KeyCode::Char('2'));
         assert_eq!(w.app.selected_row().unwrap().identifier, "ENG-158");
-        w.key(KeyCode::Char('A'));
+        w.key(KeyCode::Char('i'));
         assert_eq!(w.app.notice.as_deref(), Some("ENG-158: assigned to you (u undoes)"));
         w.key(KeyCode::Char('x'));
         let c = w.confirm();
@@ -1422,7 +1595,7 @@ mod tests {
     fn comments_go_through_the_editor_and_a_confirm() {
         let mut w = world("comment");
         w.key(KeyCode::Enter);
-        w.key(KeyCode::Char('c'));
+        w.key(KeyCode::Char('m'));
         assert_eq!(w.edits.last().unwrap(), &(EditFor::Comment { issue: "ENG-142".into() }, String::new()));
         w.edited(Some("Deployed to staging.\n\nChecking the partner API next."));
         let c = w.confirm();
@@ -1568,9 +1741,9 @@ mod tests {
         assert!(w.app.rows.iter().any(|r| r.identifier == "ENG-142"), "back in the list");
         assert_eq!(w.app.selected_row().unwrap().identifier, "ENG-143", "the selection stayed");
         // A comment.
-        w.key(KeyCode::Char('g'));
+        w.key(KeyCode::Home);
         w.key(KeyCode::Enter);
-        w.key(KeyCode::Char('c'));
+        w.key(KeyCode::Char('m'));
         w.edited(Some("Oops, wrong issue."));
         w.key(KeyCode::Char('y'));
         assert_eq!(w.app.detail.as_ref().unwrap().issue.as_ref().unwrap().comments.len(), 5);
@@ -1580,7 +1753,7 @@ mod tests {
         assert_eq!(w.show("ENG-142").comments.len(), 4);
         // A description.
         let before = w.show("ENG-142").description.unwrap();
-        w.key(KeyCode::Char('E'));
+        w.ctrl('e');
         w.edited(Some("Short."));
         w.key(KeyCode::Char('y'));
         w.key(KeyCode::Char('u'));
@@ -1616,10 +1789,10 @@ mod tests {
     fn empty_or_abandoned_comments() {
         let mut w = world("comment-empty");
         w.key(KeyCode::Enter);
-        w.key(KeyCode::Char('c'));
+        w.key(KeyCode::Char('m'));
         w.edited(Some("  \n"));
         assert_eq!(w.app.notice.as_deref(), Some("Empty comment discarded."));
-        w.key(KeyCode::Char('c'));
+        w.key(KeyCode::Char('m'));
         w.edited(None);
         assert_eq!(w.app.status.as_deref(), Some("The editor did not finish; nothing changed."));
     }
@@ -1628,7 +1801,7 @@ mod tests {
     fn editing_the_description() {
         let mut w = world("description");
         w.key(KeyCode::Enter);
-        w.key(KeyCode::Char('E'));
+        w.ctrl('e');
         let (purpose, text) = w.edits.last().unwrap().clone();
         assert!(text.starts_with("Customers who paste"));
         assert!(
@@ -1639,7 +1812,7 @@ mod tests {
         assert!(matches!(purpose, EditFor::Description { ref issue, .. } if issue == "ENG-142"));
         w.edited(Some(&format!("{text}\n")));
         assert_eq!(w.app.notice.as_deref(), Some("Description unchanged."));
-        w.key(KeyCode::Char('E'));
+        w.ctrl('e');
         w.edited(Some("Short now."));
         let c = w.confirm();
         assert_eq!(c.title, "New description for ENG-142");
@@ -1647,7 +1820,7 @@ mod tests {
         // Cancelling keeps a draft; E opens it.
         w.key(KeyCode::Esc);
         assert_eq!(w.app.notice.as_deref(), Some("Not sent. E edits your draft again."));
-        w.key(KeyCode::Char('E'));
+        w.ctrl('e');
         assert_eq!(w.edits.last().unwrap().1, "Short now.");
         assert_eq!(w.app.notice.as_deref(), Some("Editing your unsent draft."));
         w.edited(Some("Short now."));
@@ -1665,7 +1838,7 @@ mod tests {
         // dry run is refused, as a real conflict would be.
         w.app.can_check_updated = true;
         w.key(KeyCode::Enter);
-        w.key(KeyCode::Char('E'));
+        w.ctrl('e');
         w.edited(Some("Mine."));
         assert!(w.app.status.as_deref().unwrap().contains("unknown flag: --if-updated-at"));
         assert_eq!(w.app.drafts["ENG-142"], "Mine.");

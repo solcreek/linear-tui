@@ -139,6 +139,14 @@ pub fn render(app: &mut App, f: &mut Frame) {
     match &app.overlay {
         Some(Overlay::Pick(p)) => render_picker(p, f, body),
         Some(Overlay::Confirm(c)) => render_confirm(c, f, body),
+        Some(Overlay::Rename(r)) => {
+            let rect = centered(body, 90, 3);
+            f.render_widget(Clear, rect);
+            let block = Block::bordered()
+                .title(format!(" Rename {} ", r.issue.identifier))
+                .border_style(Style::new().fg(ACCENT));
+            f.render_widget(Paragraph::new(format!("{}▏", r.text)).block(block), rect);
+        }
         None => {}
     }
     if app.help {
@@ -408,6 +416,7 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
             }
             (_, Some(Overlay::Pick(_)), _) => "type to filter · ↑↓ move · enter choose · esc cancel",
             (_, Some(Overlay::Confirm(_)), _) => "y send · n cancel",
+            (_, Some(Overlay::Rename(_)), _) => "enter rename · esc cancel",
             (_, None, Some(f)) if f.editing.is_some() => {
                 "tab/↑↓ field · enter pick or edit · ctrl-s save · esc discard"
             }
@@ -416,10 +425,10 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
                 "↑↓ row · enter pick · d clear · ctrl-a apply · ctrl-s save · esc close"
             }
             (Focus::List, None, None) => {
-                "j/k move · enter open · / filter · c new · s state · a assignee · p priority · ? help · q quit"
+                "j/k move · enter open · / filter · c new · s status · p priority · a assign · i me · ? help · q quit"
             }
             (Focus::Detail, None, None) => {
-                "j/k scroll · c comment · R reply · E description · s/a/p/L edit · ]/[ next · esc back · ? help"
+                "j/k scroll · J/K next · m comment · R reply · e edit · s/p/a/L/P · y copy · esc back · ? help"
             }
         };
         Line::from(Span::styled(format!(" {hints}"), dim()))
@@ -660,7 +669,7 @@ fn viewer<'a>(app: &'a App, font: FontSize, max_rows: u16) -> impl Fn(&str, u16)
             return ImageView::Note("external image, not loaded".into());
         };
         if !app.images_on {
-            return ImageView::Note("images off (i)".into());
+            return ImageView::Note("images off (I)".into());
         }
         match app.images.get(path) {
             None | Some(ImageSlot::Loading) => ImageView::Note("loading…".into()),
@@ -727,29 +736,37 @@ fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
 }
 
 fn render_help(f: &mut Frame, area: Rect) {
+    // As Linear's own keys wherever a terminal allows (docs/design.md).
     let keys = [
         ("j k ↑ ↓", "move / scroll"),
-        ("g G", "top / bottom"),
+        ("g g  G", "top / bottom"),
+        ("g m  g a  g t", "My issues / Active / Triage"),
         ("ctrl-d ctrl-u", "half page"),
         ("enter l", "open issue"),
         ("esc h", "back"),
-        ("] [", "next / previous issue"),
+        ("J K", "next / previous issue"),
         ("tab 1-9", "switch view"),
         ("/", "filter; enter searches all"),
-        ("n", "load more"),
-        ("c", "new issue / comment (detail)"),
-        ("e", "edit the issue's fields"),
-        ("E", "edit description (detail)"),
-        ("R", "reply in a thread (detail)"),
-        ("s a p", "state / assignee / priority"),
+        ("f  F", "filters / clear them"),
+        ("V", "Linear's saved views"),
+        ("D", "order: updated, created, ..."),
+        ("c", "create issue"),
+        ("e", "edit the issue"),
+        ("r", "rename"),
+        ("s p a", "status / priority / assignee"),
+        ("i", "assign to me"),
         ("L P", "labels / project"),
-        ("A", "assign to me"),
+        ("C E", "cycle / estimate"),
+        ("m", "comment"),
+        ("R", "reply in a thread"),
+        ("ctrl-e", "description in $EDITOR"),
         ("x", "archive"),
-        ("o", "sort: updated, created, priority"),
-        ("f", "filters; save as a view"),
-        ("u", "undo the last change"),
-        ("r", "refresh"),
-        ("O", "open in browser"),
+        ("u ctrl-z", "undo the last change"),
+        ("y Y b", "copy ID / URL / branch"),
+        ("o", "open in browser"),
+        ("I", "images on / off"),
+        ("ctrl-r F5", "refresh"),
+        ("n", "load more"),
         ("q", "quit"),
     ];
     // Two columns, so it fits a 24-line terminal.
@@ -962,8 +979,8 @@ mod tests {
         assert!(s.contains("□ checkout-error.png  loading…"), "{s}");
         app.update(Msg::Image { url: DEMO_URL.into(), result: Err("HTTP 500".into()) });
         assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  not shown: HTTP 500"));
-        app.update(Msg::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)));
-        assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  images off (i)"));
+        app.update(Msg::Key(KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE)));
+        assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  images off (I)"));
     }
 
     #[test]
