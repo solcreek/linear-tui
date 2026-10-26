@@ -7,7 +7,7 @@ can do with the CLI — and the TUI shows the exact command for each action (see
 [Command parity](#command-parity)).
 
 Built against linearctl **0.1.0**. Every `linearctl` invocation in this file is
-checked against `linearctl describe` by `cargo test` (`src/contract.rs`);
+checked against linearctl 0.3.0's `describe` by `cargo test` (`src/contract.rs`);
 the commands under "(proposed)" headings do not exist yet.
 
 Facts below marked *verified* were run against the live API on 2026-10-26.

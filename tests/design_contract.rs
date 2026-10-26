@@ -1,4 +1,6 @@
-//! Every linearctl call named in docs/design.md exists in linearctl.
+//! Every linearctl call named in docs/design.md exists in the current
+//! linearctl (0.3.0); every command line the app builds exists in 0.1.0 too,
+//! the oldest release it supports.
 
 use linear_tui::contract::Describe;
 
@@ -15,11 +17,6 @@ fn assert_design_matches(d: &Describe) {
 #[test]
 fn snapshot_is_linearctl_0_1_0() {
     assert_eq!(Describe::from_json(SNAPSHOT).unwrap().version, "0.1.0");
-}
-
-#[test]
-fn design_matches_the_0_1_0_snapshot() {
-    assert_design_matches(&Describe::from_json(SNAPSHOT).unwrap());
 }
 
 #[test]
