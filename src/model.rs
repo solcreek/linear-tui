@@ -245,6 +245,46 @@ pub struct WriteResult {
     pub comment: Option<Comment>,
 }
 
+/// One line of `linearctl watch --json`. Unknown events and fields are
+/// ignored, as linearctl may add them.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "event", rename_all = "lowercase")]
+pub enum WatchEvent {
+    /// Up to date from `since`.
+    Ready {
+        #[serde(default)]
+        mode: String,
+        #[serde(default)]
+        since: String,
+    },
+    /// An issue that matches, in the list's row shape.
+    Upsert { issue: Box<IssueRow> },
+    /// An issue that stopped matching: filter, archived or deleted.
+    Remove {
+        id: String,
+        #[serde(default)]
+        identifier: Option<String>,
+        #[serde(default)]
+        reason: String,
+    },
+    Heartbeat {
+        #[serde(default)]
+        at: String,
+        #[serde(default)]
+        mode: String,
+    },
+    /// The stream was down (reconnect) or fell back to polling (fallback);
+    /// what changed meanwhile follows.
+    Gap {
+        #[serde(default)]
+        reason: String,
+        #[serde(default)]
+        mode: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
 /// What a failed command prints: `{"error": …, "usage": …}`, plus
 /// `retryAt` when rate-limited.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -358,6 +398,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r.retry_at.as_deref(), Some("2026-10-26T13:00:00Z"));
+    }
+
+    #[test]
+    fn reads_watch_events() {
+        // Lines as linearctl 0.2.1 printed them (from linear-cli's transcript).
+        let lines = [
+            r#"{"event":"upsert","issue":{"assignee":{"email":"ada@example.com","name":"Ada"},"createdAt":"2026-10-01T00:00:00.000Z","cycle":null,"id":"id-ENG-3","identifier":"ENG-3","labels":[{"name":"bug"}],"priority":2,"priorityLabel":"High","project":null,"state":{"name":"Todo","type":"unstarted"},"team":{"key":"ENG"},"title":"Replayed since --since","updatedAt":"2026-10-02T00:00:00.000Z","url":"https://linear.app/acme/issue/ENG-3"}}"#,
+            r#"{"event":"remove","id":"id-ENG-1","identifier":"ENG-1","reason":"filter"}"#,
+            r#"{"event":"ready","everything":false,"known":1,"mode":"subscription","since":"2026-10-26T16:15:55Z"}"#,
+            r#"{"at":"2026-10-26T16:16:01Z","event":"heartbeat","mode":"subscription","rateLimit":{}}"#,
+            r#"{"downFor":"1s","event":"gap","from":"2026-10-26T16:15:55Z","mode":"subscription","reason":"reconnect","to":"2026-10-26T16:16:02Z"}"#,
+            r#"{"event":"remove","id":"x","identifier":null,"reason":"deleted"}"#,
+            r#"{"event":"something-new","x":1}"#,
+        ];
+        let ev: Vec<WatchEvent> = lines.iter().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert!(
+            matches!(&ev[0], WatchEvent::Upsert { issue } if issue.identifier == "ENG-3" && issue.priority == 2)
+        );
+        assert_eq!(
+            ev[1],
+            WatchEvent::Remove {
+                id: "id-ENG-1".into(),
+                identifier: Some("ENG-1".into()),
+                reason: "filter".into()
+            }
+        );
+        assert_eq!(
+            ev[2],
+            WatchEvent::Ready {
+                mode: "subscription".into(),
+                since: "2026-10-26T16:15:55Z".into()
+            }
+        );
+        assert_eq!(
+            ev[3],
+            WatchEvent::Heartbeat {
+                at: "2026-10-26T16:16:01Z".into(),
+                mode: "subscription".into()
+            }
+        );
+        assert_eq!(
+            ev[4],
+            WatchEvent::Gap {
+                reason: "reconnect".into(),
+                mode: "subscription".into()
+            }
+        );
+        assert_eq!(
+            ev[5],
+            WatchEvent::Remove {
+                id: "x".into(),
+                identifier: None,
+                reason: "deleted".into()
+            }
+        );
+        assert_eq!(ev[6], WatchEvent::Other);
+        // The last line of a failed watch has no event.
+        assert!(serde_json::from_str::<WatchEvent>(r#"{"error":"rate limited"}"#).is_err());
     }
 
     #[test]

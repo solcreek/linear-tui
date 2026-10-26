@@ -55,6 +55,22 @@ pub fn auth_status_argv() -> Vec<String> {
     argv(&["auth", "status", "--json"])
 }
 
+/// `watch` for a view: its filters (watch has no `--sort`), the list's
+/// fields, one JSON line per event.
+pub fn watch_argv(view: &[String]) -> Vec<String> {
+    let mut a = argv(&["watch"]);
+    let mut it = view.iter();
+    while let Some(w) = it.next() {
+        if w == "--sort" {
+            it.next();
+            continue;
+        }
+        a.push(w.clone());
+    }
+    a.extend(argv(&["--fields", ROW_FIELDS, "--json"]));
+    a
+}
+
 /// The names a picker offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Lookup {
@@ -443,6 +459,27 @@ mod tests {
         let mut b = comment_argv("ENG-1", "i", Mode::DryRun);
         b.splice(3..3, ["--body-file".to_string(), "/tmp/x".to_string()]);
         assert_valid_in_both(&b);
+    }
+
+    #[test]
+    fn watch_argv_drops_sort_and_is_valid_in_0_3_0() {
+        let view: Vec<String> = [
+            "--assignee",
+            "me",
+            "--state-type",
+            "started",
+            "--sort",
+            "priority",
+        ]
+        .map(String::from)
+        .to_vec();
+        let w = watch_argv(&view);
+        assert_eq!(w[..5], ["watch", "--assignee", "me", "--state-type", "started"]);
+        assert!(!w.contains(&"--sort".to_string()) && !w.contains(&"priority".to_string()));
+        let problems = describe_0_3_0().check_argv(&w);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(!describe().check_argv(&w).is_empty(), "0.1.0 has no watch");
+        assert_eq!(watch_argv(&[]), ["watch", "--fields", ROW_FIELDS, "--json"]);
     }
 
     #[test]
