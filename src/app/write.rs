@@ -618,7 +618,7 @@ impl App {
                 p.query.pop();
                 p.cursor = 0;
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char(c) if !ctrl => {
                 p.query.push(c);
                 p.cursor = 0;
             }
@@ -1608,6 +1608,14 @@ mod tests {
         w.key(KeyCode::Esc);
         assert!(w.app.form.is_none());
         assert_eq!(w.app.notice.as_deref(), Some("New issue discarded."));
+    }
+
+    #[test]
+    fn control_keys_do_not_type_into_a_picker() {
+        let mut w = world("ctrl");
+        w.key(KeyCode::Char('s'));
+        w.ctrl('s');
+        assert_eq!(w.picker().query, "");
     }
 
     #[test]
