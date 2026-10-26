@@ -379,14 +379,14 @@ mod tests {
         // Not while loading, nor with a dialog open.
         assert!(app.update(Msg::Tick).is_empty());
         app.loading = false;
-        app.overlay = Some(super::super::Overlay::Confirm(super::super::Confirm {
+        app.overlay = Some(super::super::Overlay::Confirm(Box::new(super::super::Confirm {
             title: String::new(),
             lines: vec![],
             command: String::new(),
             argv: vec![],
             text: None,
             purpose: super::super::Purpose::Create,
-        }));
+        })));
         assert!(app.update(Msg::Tick).is_empty());
     }
 

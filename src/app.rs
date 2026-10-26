@@ -11,8 +11,10 @@ use crate::ctl::{self, Failure, Lookup};
 use crate::model::{AuthStatus, IssueDetail, IssueRow, Named, Page, WriteResult};
 
 mod live;
+mod undo;
 mod write;
 pub use live::{Live, can_watch};
+pub use undo::{Undo, UndoStep};
 pub use write::{
     Confirm, EditFor, FORM_FIELDS, Field, Form, Lookups, Overlay, PickItem, PickList, Purpose, Target, Text,
 };
@@ -374,6 +376,10 @@ pub struct App {
     pub can_watch: bool,
     /// Whether linearctl has `comment create --parent` (0.2.0).
     pub can_reply: bool,
+    /// What `u` reverts: the last write, when it can be.
+    pub undo: Option<Undo>,
+    /// linearctl's command surface, when known: which undos it can run.
+    pub describe: Option<crate::contract::Describe>,
     /// The watch for the view on screen.
     pub live: Option<Live>,
     /// An issue from a URL, to open once `auth status` shows its workspace.
@@ -420,6 +426,8 @@ impl App {
             can_check_updated: false,
             can_watch: false,
             can_reply: false,
+            undo: None,
+            describe: None,
             live: None,
             pending_open: None,
             watch_generation: 0,

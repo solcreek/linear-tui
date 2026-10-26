@@ -33,7 +33,7 @@ fn serve_answers_reads_writes_and_failures() {
     );
     // A write with its text in a file, the way the app sends it.
     let req = Request::Write {
-        purpose: Purpose::Description { issue: "ENG-155".into() },
+        purpose: Purpose::Description { issue: "ENG-155".into(), original: String::new() },
         argv: ctl::update_argv("ENG-155", &[], Mode::Yes),
         text: Some(Text { flag: "description", text: "Over serve.".into() }),
         summary: vec![],

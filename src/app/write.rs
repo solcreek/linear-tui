@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::undo::UndoStep;
 use super::{App, Effect, Focus, Request};
 use crate::ctl::{self, Failure, Lookup, Mode};
 use crate::model::{IssueRow, Named, Page, WriteResult};
@@ -30,6 +31,8 @@ pub enum Purpose {
     Quick {
         issue: String,
         what: String,
+        /// The flags that put it back; `None` when it cannot be undone.
+        undo: Option<Vec<(String, String)>>,
     },
     Comment {
         issue: String,
@@ -40,6 +43,12 @@ pub enum Purpose {
     },
     Description {
         issue: String,
+        original: String,
+    },
+    /// Reverting the last write.
+    Undo {
+        label: String,
+        step: super::undo::UndoStep,
     },
     Archive {
         issue: String,
@@ -144,7 +153,7 @@ pub struct Confirm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
     Pick(Box<PickList>),
-    Confirm(Confirm),
+    Confirm(Box<Confirm>),
 }
 
 /// The create form's fields, in order.
@@ -436,9 +445,15 @@ impl App {
     }
 
     /// A dry run of an `issue update`.
-    fn quick(&mut self, issue: &str, flags: &[(&str, &str)], what: String) -> Vec<Effect> {
+    fn quick(
+        &mut self,
+        issue: &str,
+        flags: &[(&str, &str)],
+        what: String,
+        undo: Option<Vec<(String, String)>>,
+    ) -> Vec<Effect> {
         let argv = ctl::update_argv(issue, flags, Mode::DryRun);
-        let purpose = Purpose::Quick { issue: issue.into(), what };
+        let purpose = Purpose::Quick { issue: issue.into(), what, undo };
         vec![Effect::Run(Request::Write { purpose, argv, text: None, summary: Vec::new() })]
     }
 
@@ -457,9 +472,12 @@ impl App {
             return Some(self.open_picker(Target::Issue { issue: Box::new(issue), field }));
         }
         match k.code {
+            KeyCode::Char('u') => Some(self.start_undo()),
             KeyCode::Char('A') => {
                 let issue = self.target_issue()?;
-                Some(self.quick(&issue.identifier, &[("assignee", "me")], "assigned to you".into()))
+                let back = issue.assignee.as_ref().map_or("none".to_string(), |a| a.email.clone());
+                let undo = Some(vec![("assignee".to_string(), back)]);
+                Some(self.quick(&issue.identifier, &[("assignee", "me")], "assigned to you".into(), undo))
             }
             KeyCode::Char('x') => {
                 let issue = self.target_issue()?;
@@ -549,7 +567,7 @@ impl App {
     pub(super) fn write_key(&mut self, k: KeyEvent) -> Option<Vec<Effect>> {
         match self.overlay.take() {
             Some(Overlay::Pick(p)) => Some(self.pick_key(*p, k)),
-            Some(Overlay::Confirm(c)) => Some(self.confirm_key(c, k)),
+            Some(Overlay::Confirm(c)) => Some(self.confirm_key(*c, k)),
             None if self.form.is_some() => Some(self.form_key(k)),
             None => None,
         }
@@ -566,7 +584,7 @@ impl App {
                 })]
             }
             KeyCode::Char('n') | KeyCode::Esc => {
-                if let (Purpose::Description { issue }, Some(t)) = (&c.purpose, &c.text) {
+                if let (Purpose::Description { issue, .. }, Some(t)) = (&c.purpose, &c.text) {
                     self.drafts.insert(issue.clone(), t.text.clone());
                     self.notice = Some("Not sent. E edits your draft again.".into());
                 } else {
@@ -575,7 +593,7 @@ impl App {
                 Vec::new()
             }
             _ => {
-                self.overlay = Some(Overlay::Confirm(c));
+                self.overlay = Some(Overlay::Confirm(Box::new(c)));
                 Vec::new()
             }
         }
@@ -638,7 +656,10 @@ impl App {
                     "labels: {}",
                     if chosen.is_empty() { "none".to_string() } else { chosen.join(", ") }
                 );
-                self.quick(&issue.identifier, &flags, what)
+                let mut undo: Vec<(String, String)> =
+                    add.iter().map(|l| ("remove-label".to_string(), (*l).clone())).collect();
+                undo.extend(remove.iter().map(|l| ("add-label".to_string(), (*l).clone())));
+                self.quick(&issue.identifier, &flags, what, Some(undo))
             }
             Target::Issue { issue, field } => {
                 let Some(item) = current else { return Vec::new() };
@@ -653,7 +674,18 @@ impl App {
                     _ => "project",
                 };
                 let what = format!("{} → {}", title_of(field).to_lowercase(), item.label);
-                self.quick(&issue.identifier, &[(flag, &item.value)], what)
+                // The old value; a project cannot be cleared (linearctl
+                // 0.4.0 has no --project none), so setting one is final.
+                let back = match field {
+                    Field::State => issue.state.as_ref().map(|s| s.name.clone()),
+                    Field::Priority => Some(issue.priority.to_string()),
+                    Field::Assignee => {
+                        Some(issue.assignee.as_ref().map_or("none".into(), |a| a.email.clone()))
+                    }
+                    _ => issue.project.as_ref().map(|p| p.name.clone()),
+                };
+                let undo = back.map(|b| vec![(flag.to_string(), b)]);
+                self.quick(&issue.identifier, &[(flag, &item.value)], what, undo)
             }
             Target::Form(field) => {
                 let form = self.form.as_mut().expect("a form picker has a form");
@@ -839,7 +871,7 @@ impl App {
                 summary.extend(preview(&new, 6));
                 let text = Some(Text { flag: "description", text: new });
                 vec![Effect::Run(Request::Write {
-                    purpose: Purpose::Description { issue },
+                    purpose: Purpose::Description { issue, original },
                     argv,
                     text,
                     summary,
@@ -861,7 +893,7 @@ impl App {
         let r = match result {
             Ok(r) => *r,
             Err(Failure::Conflict(msg)) => {
-                if let (Purpose::Description { issue }, Some(t)) = (&purpose, &text) {
+                if let (Purpose::Description { issue, .. }, Some(t)) = (&purpose, &text) {
                     self.drafts.insert(issue.clone(), t.text.clone());
                     self.status = Some(format!(
                         "{issue} changed on Linear since you opened it ({msg}). Your text is kept: r reloads, E edits it again."
@@ -872,7 +904,7 @@ impl App {
                 return Vec::new();
             }
             Err(f) => {
-                if let (Purpose::Description { issue }, Some(t)) = (&purpose, &text) {
+                if let (Purpose::Description { issue, .. }, Some(t)) = (&purpose, &text) {
                     self.drafts.insert(issue.clone(), t.text.clone());
                 }
                 self.status = Some(f.message());
@@ -885,31 +917,52 @@ impl App {
                 return Vec::new();
             }
             let yes = ctl::with_mode(&argv, Mode::Yes);
-            if matches!(purpose, Purpose::Quick { .. }) {
+            if matches!(purpose, Purpose::Quick { .. } | Purpose::Undo { .. }) {
                 return vec![Effect::Run(Request::Write { purpose, argv: yes, text, summary: Vec::new() })];
             }
             let title = match &purpose {
                 Purpose::Comment { issue } => format!("Comment on {issue}"),
                 Purpose::Reply { issue, to } => format!("Reply to {to} on {issue}"),
-                Purpose::Description { issue } => format!("New description for {issue}"),
+                Purpose::Description { issue, .. } => format!("New description for {issue}"),
                 Purpose::Archive { issue } => format!("Archive {issue}?"),
                 Purpose::Create => "Create this issue?".into(),
                 Purpose::Quick { issue, .. } => issue.clone(),
+                Purpose::Undo { label, .. } => format!("Undo {label}"),
             };
             let command = shell_line(&yes, text.as_ref());
-            self.overlay =
-                Some(Overlay::Confirm(Confirm { title, lines: summary, command, argv: yes, text, purpose }));
+            self.overlay = Some(Overlay::Confirm(Box::new(Confirm {
+                title,
+                lines: summary,
+                command,
+                argv: yes,
+                text,
+                purpose,
+            })));
             return Vec::new();
         }
         self.status = None;
         match purpose {
-            Purpose::Quick { issue, what } => {
+            Purpose::Quick { issue, what, undo } => {
                 self.apply_row(r.issue);
-                self.notice =
-                    Some(if r.changed { format!("{issue}: {what}") } else { "Nothing to change.".into() });
+                self.notice = Some(match (&undo, r.changed) {
+                    (_, false) => "Nothing to change.".into(),
+                    (Some(_), true) => format!("{issue}: {what} (u undoes)"),
+                    (None, true) => format!("{issue}: {what} (linearctl cannot clear a project: no undo)"),
+                });
+                if r.changed {
+                    self.undo = None;
+                    if let Some(flags) = undo {
+                        let step = UndoStep::Update { issue: issue.clone(), flags, text: None };
+                        self.remember_undo(format!("{issue}: {what}"), step);
+                    }
+                }
                 self.refresh_detail(&issue)
             }
-            Purpose::Description { issue } => {
+            Purpose::Undo { label, step } => self.on_undone(label, step, r),
+            Purpose::Description { issue, original } => {
+                let text = Some(Text { flag: "description", text: original });
+                let step = UndoStep::Update { issue: issue.clone(), flags: Vec::new(), text };
+                self.remember_undo(format!("{issue}: description"), step);
                 self.drafts.remove(&issue);
                 self.apply_row(r.issue);
                 self.notice = Some(format!("{issue}: description saved"));
@@ -917,13 +970,15 @@ impl App {
             }
             Purpose::Comment { issue } | Purpose::Reply { issue, .. } => {
                 if let Some(c) = r.comment {
+                    let step = UndoStep::DeleteComment { issue: issue.clone(), id: c.id.clone() };
                     let open = self.detail.as_mut().filter(|d| d.id == issue).and_then(|d| d.issue.as_mut());
                     if let Some(i) = open
                         && !i.comments.iter().any(|x| x.id == c.id)
                     {
-                        i.comments.push(c.clone());
+                        i.comments.push(c);
                         self.cache.insert(issue.clone(), i.clone());
                     }
+                    self.remember_undo(format!("comment on {issue}"), step);
                 }
                 self.notice = Some(format!("Comment added to {issue}"));
                 Vec::new()
@@ -936,6 +991,10 @@ impl App {
                     self.detail = None;
                     self.focus = Focus::List;
                 }
+                self.remember_undo(
+                    format!("archiving {issue}"),
+                    UndoStep::Unarchive { issue: issue.clone() },
+                );
                 self.notice = Some(format!("Archived {issue}"));
                 Vec::new()
             }
@@ -948,6 +1007,7 @@ impl App {
                 }
                 self.filter.clear();
                 self.selected = 0;
+                self.remember_undo(format!("creating {id}"), UndoStep::Archive { issue: id.clone() });
                 self.notice = Some(format!("Created {id}"));
                 self.focus = Focus::Detail;
                 self.detail = Some(super::Detail { id: id.clone(), issue: None, error: None, scroll: 0 });
@@ -957,7 +1017,7 @@ impl App {
     }
 
     /// Replace a row with what a write returned.
-    fn apply_row(&mut self, row: Option<IssueRow>) {
+    pub(super) fn apply_row(&mut self, row: Option<IssueRow>) {
         let Some(row) = row else { return };
         if let Some(r) = self.rows.iter_mut().find(|r| r.id == row.id) {
             *r = row;
@@ -965,7 +1025,7 @@ impl App {
     }
 
     /// Fetch an issue again if it is open, and forget its cached copy.
-    fn refresh_detail(&mut self, issue: &str) -> Vec<Effect> {
+    pub(super) fn refresh_detail(&mut self, issue: &str) -> Vec<Effect> {
         self.cache.remove(issue);
         if self.detail.as_ref().is_some_and(|d| d.id == issue) {
             return vec![Effect::Run(Request::Show { argv: ctl::show_argv(issue), id: issue.to_string() })];
@@ -1094,7 +1154,7 @@ mod tests {
         assert_eq!(w.picker().visible().len(), 1);
         w.key(KeyCode::Enter);
         assert!(w.app.overlay.is_none());
-        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: status → In Review"));
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: status → In Review (u undoes)"));
         assert_eq!(w.row("ENG-142").state.as_ref().unwrap().name, "In Review");
         assert_eq!(w.show("ENG-142").row.state.unwrap().name, "In Review", "written");
     }
@@ -1125,7 +1185,7 @@ mod tests {
         w.key(KeyCode::Up);
         w.key(KeyCode::Down);
         w.key(KeyCode::Enter);
-        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: priority → Low"));
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: priority → Low (u undoes)"));
         assert_eq!(w.row("ENG-142").priority, 4);
 
         w.key(KeyCode::Char('a'));
@@ -1160,7 +1220,7 @@ mod tests {
         w.chars("bug");
         w.key(KeyCode::Char(' '));
         w.key(KeyCode::Enter);
-        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: labels: Security, Customer reported"));
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: labels: Security, Customer reported (u undoes)"));
         let names: Vec<&str> = w.row("ENG-142").labels.iter().map(|l| l.name.as_str()).collect();
         assert_eq!(names, ["Customer reported", "Security"]);
         w.key(KeyCode::Char('L'));
@@ -1177,7 +1237,7 @@ mod tests {
         w.chars("secu");
         w.key(KeyCode::Char(' '));
         w.key(KeyCode::Enter);
-        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: labels: none"));
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: labels: none (u undoes)"));
     }
 
     #[test]
@@ -1188,7 +1248,7 @@ mod tests {
         w.key(KeyCode::Char('2'));
         assert_eq!(w.app.selected_row().unwrap().identifier, "ENG-158");
         w.key(KeyCode::Char('A'));
-        assert_eq!(w.app.notice.as_deref(), Some("ENG-158: assigned to you"));
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-158: assigned to you (u undoes)"));
         w.key(KeyCode::Char('x'));
         let c = w.confirm();
         assert_eq!(c.title, "Archive ENG-158?");
@@ -1283,6 +1343,116 @@ mod tests {
     }
 
     #[test]
+    fn u_undoes_quick_edits() {
+        let mut w = world("undo-quick");
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.app.notice.as_deref(), Some("Nothing to undo."));
+        w.key(KeyCode::Char('s'));
+        w.chars("done");
+        w.key(KeyCode::Enter);
+        assert_eq!(w.row("ENG-142").state.as_ref().unwrap().name, "Done");
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.app.notice.as_deref(), Some("Undone: ENG-142: status → Done"));
+        assert_eq!(w.row("ENG-142").state.as_ref().unwrap().name, "In Progress");
+        assert_eq!(w.show("ENG-142").row.state.unwrap().name, "In Progress", "written back");
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.app.notice.as_deref(), Some("Nothing to undo."), "one level");
+        // Labels: added ones come off, removed ones go back.
+        w.key(KeyCode::Char('L'));
+        w.chars("bug");
+        w.key(KeyCode::Char(' '));
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('u'));
+        let labels: Vec<String> = w.row("ENG-142").labels.iter().map(|l| l.name.clone()).collect();
+        assert!(labels.contains(&"Bug".to_string()), "{labels:?}");
+        // Assignee back to someone else.
+        w.key(KeyCode::Char('a'));
+        w.key(KeyCode::Down);
+        w.key(KeyCode::Enter);
+        assert!(w.row("ENG-142").assignee.is_none());
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.row("ENG-142").assignee.as_ref().unwrap().name, "Maya Patel");
+    }
+
+    #[test]
+    fn a_project_set_where_there_was_none_cannot_be_undone() {
+        let mut w = world("undo-project");
+        w.key(KeyCode::Char('2'));
+        while w.app.selected_row().unwrap().identifier != "ENG-152" {
+            w.key(KeyCode::Down);
+        }
+        w.key(KeyCode::Char('P'));
+        w.chars("mobile");
+        w.key(KeyCode::Enter);
+        assert_eq!(
+            w.app.notice.as_deref(),
+            Some("ENG-152: project → Mobile 3.0 (linearctl cannot clear a project: no undo)")
+        );
+        assert!(w.app.undo.is_none());
+        // From one project to another: undoable.
+        w.key(KeyCode::Char('P'));
+        w.chars("checkout");
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.row("ENG-152").project.as_ref().unwrap().name, "Mobile 3.0");
+    }
+
+    #[test]
+    fn u_undoes_archive_comment_description_and_create() {
+        let mut w = world("undo-more");
+        w.key(KeyCode::Char('x'));
+        w.key(KeyCode::Char('y'));
+        assert!(!w.app.rows.iter().any(|r| r.identifier == "ENG-142"));
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.app.notice.as_deref(), Some("Undone: archiving ENG-142"));
+        assert!(w.app.rows.iter().any(|r| r.identifier == "ENG-142"), "back in the list");
+        assert_eq!(w.app.selected_row().unwrap().identifier, "ENG-143", "the selection stayed");
+        // A comment.
+        w.key(KeyCode::Char('g'));
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('c'));
+        w.edited(Some("Oops, wrong issue."));
+        w.key(KeyCode::Char('y'));
+        assert_eq!(w.app.detail.as_ref().unwrap().issue.as_ref().unwrap().comments.len(), 5);
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.app.notice.as_deref(), Some("Undone: comment on ENG-142"));
+        assert_eq!(w.app.detail.as_ref().unwrap().issue.as_ref().unwrap().comments.len(), 4);
+        assert_eq!(w.show("ENG-142").comments.len(), 4);
+        // A description.
+        let before = w.show("ENG-142").description.unwrap();
+        w.key(KeyCode::Char('E'));
+        w.edited(Some("Short."));
+        w.key(KeyCode::Char('y'));
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.show("ENG-142").description.unwrap(), before.trim_end());
+        // A new issue is archived.
+        w.key(KeyCode::Esc);
+        w.key(KeyCode::Char('c'));
+        w.chars("Temporary");
+        w.ctrl('s');
+        w.key(KeyCode::Char('y'));
+        assert_eq!(w.app.notice.as_deref(), Some("Created ENG-159"));
+        w.key(KeyCode::Char('u'));
+        assert_eq!(w.app.notice.as_deref(), Some("Undone: creating ENG-159"));
+        assert!(w.app.detail.is_none());
+        assert!(!w.app.rows.iter().any(|r| r.identifier == "ENG-159"));
+    }
+
+    #[test]
+    fn no_undo_that_linearctl_cannot_run() {
+        let mut w = world("undo-old");
+        let old = include_str!("../../tests/fixtures/linearctl-describe-0.1.0.json");
+        w.app.describe = Some(crate::contract::Describe::from_json(old).unwrap());
+        w.key(KeyCode::Char('x'));
+        w.key(KeyCode::Char('y'));
+        assert!(w.app.undo.is_none(), "0.1.0 has no issue unarchive");
+        w.key(KeyCode::Char('s'));
+        w.chars("todo");
+        w.key(KeyCode::Enter);
+        assert!(w.app.undo.is_some(), "an update it can do");
+    }
+
+    #[test]
     fn empty_or_abandoned_comments() {
         let mut w = world("comment-empty");
         w.key(KeyCode::Enter);
@@ -1301,6 +1471,11 @@ mod tests {
         w.key(KeyCode::Char('E'));
         let (purpose, text) = w.edits.last().unwrap().clone();
         assert!(text.starts_with("Customers who paste"));
+        assert!(
+            text.contains("uploads.linear.app/demo/checkout-error.png)"),
+            "unsigned, as Linear stores it"
+        );
+        assert!(!text.contains("signature="));
         assert!(matches!(purpose, EditFor::Description { ref issue, .. } if issue == "ENG-142"));
         w.edited(Some(&format!("{text}\n")));
         assert_eq!(w.app.notice.as_deref(), Some("Description unchanged."));
@@ -1337,7 +1512,7 @@ mod tests {
         // A conflict (exit 7) says what happened.
         let text = Some(Text { flag: "description", text: "Mine again.".into() });
         let fx = w.app.update(Msg::Wrote {
-            purpose: Purpose::Description { issue: "ENG-142".into() },
+            purpose: Purpose::Description { issue: "ENG-142".into(), original: String::new() },
             argv: vec![],
             text,
             summary: vec![],

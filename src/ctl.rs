@@ -158,6 +158,16 @@ pub fn archive_argv(issue: &str, mode: Mode) -> Vec<String> {
     argv(&["issue", "archive", issue, mode.flag(), "--json"])
 }
 
+/// Restore an archived issue (linearctl 0.2.0).
+pub fn unarchive_argv(issue: &str, mode: Mode) -> Vec<String> {
+    argv(&["issue", "unarchive", issue, mode.flag(), "--json"])
+}
+
+/// Delete a comment by id (linearctl 0.2.0).
+pub fn delete_comment_argv(id: &str, mode: Mode) -> Vec<String> {
+    argv(&["comment", "delete", id, mode.flag(), "--json"])
+}
+
 /// Why a call produced no result.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Failure {
@@ -414,6 +424,10 @@ mod tests {
         assert!(describe_0_4_0().check_argv(&reply).is_empty());
         assert!(!describe().check_argv(&reply).is_empty(), "0.1.0 has no --parent");
         assert_valid_in_both(&archive_argv("ENG-142", Mode::Yes));
+        for later in [unarchive_argv("ENG-142", Mode::Yes), delete_comment_argv("c-1", Mode::DryRun)] {
+            assert!(describe_0_4_0().check_argv(&later).is_empty(), "{later:?}");
+            assert!(!describe().check_argv(&later).is_empty(), "0.1.0 lacks {later:?}");
+        }
         // The text flags the runner appends exist too.
         let mut d = update_argv("ENG-1", &[], Mode::DryRun);
         d.splice(3..3, ["--description-file".to_string(), "/tmp/x".to_string()]);

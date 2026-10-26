@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `u` undoes the last write: quick edits, a description, a comment or reply
+  (deleted), archiving (unarchived) and a new issue (archived). One level; a
+  project set where there was none cannot be undone yet (linearctl cannot
+  clear a project), and the notice says so.
 - `R` in an issue replies in one of its comment threads (linearctl 0.2.0 or
   later): pick the thread, write in `$EDITOR`, confirm.
 - `o` cycles the list's order between updated, created and priority.
@@ -49,6 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text is kept as a draft.
 - On start, linear-tui checks `linearctl describe` for every command and flag
   it will use, and refuses to start with a clear message if one is missing.
+
+### Fixed
+
+- Editing a description no longer writes the signed URLs of its uploads back
+  into Linear, which would break its images when the signatures expire.
 
 ## [0.0.1] - 2026-10-26
 

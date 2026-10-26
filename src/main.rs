@@ -266,6 +266,7 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
     app.can_check_updated = linear_tui::app::can_check_updated(describe);
     app.can_watch = linear_tui::app::can_watch(describe);
     app.can_reply = linear_tui::app::can_reply(describe);
+    app.describe = Some(describe.clone());
     let mut start = app.start();
     if let Some(id) = &opts.issue {
         start.extend(app.open_ref(id.clone()));
