@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use linear_tui::app::{App, EditFor, Effect, Msg, default_views, missing};
+use linear_tui::app::{App, EditFor, Effect, Msg, default_views, issue_ref, missing};
 use linear_tui::contract::Describe;
 use linear_tui::ctl::{Exec, Runner, Serve, WatchLine, Watcher};
 use linear_tui::images::{self, DiskCache, Loader};
@@ -18,7 +18,9 @@ use ratatui_image::picker::{Picker, ProtocolType};
 const USAGE: &str = "\
 linear-tui: a terminal UI for Linear, on top of linearctl
 
-Usage: linear-tui [--demo] [--linearctl PATH] [--images MODE] [--cell-size WxH]
+Usage: linear-tui [--demo] [--linearctl PATH] [--images MODE] [--cell-size WxH] [ISSUE]
+
+  ISSUE              open this issue first: ENG-142, or its linear.app URL
 
   --demo             browse a fictional workspace; needs no Linear account
   --linearctl PATH   the linearctl to run (default: $LINEARCTL, else linearctl on PATH)
@@ -48,12 +50,15 @@ struct Options {
     demo: bool,
     images: Images,
     cell: Option<(u16, u16)>,
+    /// The issue to open first.
+    issue: Option<String>,
 }
 
 fn parse(args: &[String]) -> Result<Option<Options>, String> {
     let mut demo = false;
     let mut images = Images::Auto;
     let mut cell = None;
+    let mut issue = None;
     let mut program = std::env::var_os("LINEARCTL").map(PathBuf::from);
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -80,11 +85,18 @@ fn parse(args: &[String]) -> Result<Option<Options>, String> {
                 }
             }
             "--cell-size" => cell = Some(cell_size(it.next())?),
-            other => return Err(format!("unknown argument: {other}")),
+            other if other.starts_with('-') || issue.is_some() => {
+                return Err(format!("unknown argument: {other}"));
+            }
+            other => {
+                let id = issue_ref(other)
+                    .ok_or_else(|| format!("not an issue identifier or Linear issue URL: {other}"))?;
+                issue = Some(id);
+            }
         }
     }
     let program = program.unwrap_or_else(|| "linearctl".into());
-    Ok(Some(Options { program, demo, images, cell }))
+    Ok(Some(Options { program, demo, images, cell, issue }))
 }
 
 /// `--cell-size WxH`, both above zero.
@@ -253,7 +265,11 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
     app.images_on = opts.images != Images::Off;
     app.can_check_updated = linear_tui::app::can_check_updated(describe);
     app.can_watch = linear_tui::app::can_watch(describe);
-    let mut edits = fx.start(app.start());
+    let mut start = app.start();
+    if let Some(id) = &opts.issue {
+        start.extend(app.open_id(id.clone()));
+    }
+    let mut edits = fx.start(start);
     let mut tick = std::time::Instant::now();
     let result = loop {
         app.now = chrono::Utc::now();

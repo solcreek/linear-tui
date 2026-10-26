@@ -94,6 +94,29 @@ pub fn can_check_updated(d: &crate::contract::Describe) -> bool {
     d.check_argv(&probe).is_empty()
 }
 
+/// The issue identifier `arg` names: ENG-142 itself, or a Linear issue URL
+/// (`https://linear.app/<workspace>/issue/ENG-142/<slug>`). Uppercased.
+pub fn issue_ref(arg: &str) -> Option<String> {
+    let id = match arg.strip_prefix("https://linear.app/") {
+        Some(rest) => {
+            let path = rest.split(['?', '#']).next().unwrap_or_default();
+            let mut parts = path.split('/');
+            let (workspace, kind) = (parts.next()?, parts.next()?);
+            if workspace.is_empty() || kind != "issue" {
+                return None;
+            }
+            parts.next()?
+        }
+        None => arg,
+    };
+    let (team, number) = id.split_once('-')?;
+    let ok = team.starts_with(|c: char| c.is_ascii_alphabetic())
+        && team.chars().all(|c| c.is_ascii_alphanumeric())
+        && !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit());
+    ok.then(|| id.to_ascii_uppercase())
+}
+
 /// What `describe` lacks for these views; empty when linearctl will do.
 pub fn missing(d: &crate::contract::Describe, views: &[View]) -> Vec<String> {
     required_argvs(views).iter().flat_map(|a| d.check_argv(a)).collect()
@@ -468,6 +491,11 @@ impl App {
             return Vec::new();
         };
         let id = row.identifier.clone();
+        self.open_id(id)
+    }
+
+    /// Open an issue by identifier, whether or not the list shows it.
+    pub fn open_id(&mut self, id: String) -> Vec<Effect> {
         self.focus = Focus::Detail;
         if self.detail.as_ref().is_some_and(|d| d.id == id && d.issue.is_some()) {
             return Vec::new();
@@ -953,6 +981,61 @@ mod tests {
         drive(&mut app, ch('k'));
         assert!(drive(&mut app, key(KeyCode::Enter)).is_empty(), "cached");
         assert_eq!(app.detail.as_ref().unwrap().id, "ENG-142");
+    }
+
+    #[test]
+    fn issue_refs() {
+        for (arg, id) in [
+            ("ENG-142", "ENG-142"),
+            ("eng-142", "ENG-142"),
+            ("A1-7", "A1-7"),
+            ("https://linear.app/northwind/issue/ENG-142", "ENG-142"),
+            ("https://linear.app/northwind/issue/eng-142/checkout-fails", "ENG-142"),
+            ("https://linear.app/northwind/issue/ENG-142?x=1", "ENG-142"),
+            ("https://linear.app/northwind/issue/ENG-142#comment-1", "ENG-142"),
+        ] {
+            assert_eq!(issue_ref(arg).as_deref(), Some(id), "{arg}");
+        }
+        for arg in [
+            "",
+            "ENG",
+            "ENG-",
+            "-142",
+            "1ENG-142",
+            "ENG-14a",
+            "EN G-142",
+            "https://linear.app/northwind/project/ENG-142",
+            "https://linear.app//issue/ENG-142",
+            "https://linear.app/northwind/issue/",
+            "https://linear.app/northwind",
+            "http://linear.app/northwind/issue/ENG-142",
+            "https://linear.app.evil.com/northwind/issue/ENG-142",
+        ] {
+            assert_eq!(issue_ref(arg), None, "{arg}");
+        }
+    }
+
+    #[test]
+    fn opening_an_issue_by_identifier() {
+        let mut app = started();
+        let mut queue = app.open_id("ENG-131".into());
+        while let Some(fx) = queue.pop() {
+            if matches!(fx, Effect::Run(_)) {
+                queue.extend(app.update(answer(&fx)));
+            }
+        }
+        assert_eq!(app.focus, Focus::Detail);
+        let d = app.detail.as_ref().unwrap();
+        assert_eq!(d.id, "ENG-131");
+        assert!(d.issue.is_some() && d.error.is_none());
+        assert_eq!(app.selected_row().unwrap().identifier, "ENG-142", "the list is left alone");
+        drive(&mut app, key(KeyCode::Esc));
+        assert_eq!(app.focus, Focus::List);
+
+        let fx = app.open_id("ENG-9999".into());
+        app.update(answer(&fx[0]));
+        let d = app.detail.as_ref().unwrap();
+        assert!(d.issue.is_none() && d.error.is_some());
     }
 
     #[test]
