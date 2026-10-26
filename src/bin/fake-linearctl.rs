@@ -2,12 +2,39 @@
 //! `linear-tui --demo` runs it; tests use it as linearctl's double.
 
 use std::io::Write;
+use std::time::Duration;
+
+use linear_tui::fake;
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let fault = std::env::var(linear_tui::fake::FAULT_ENV).ok();
-    let state = std::env::var_os(linear_tui::fake::STATE_ENV).map(std::path::PathBuf::from);
-    let out = linear_tui::fake::run_with_fault(&argv, chrono::Utc::now(), fault.as_deref(), state.as_deref());
+    let state = std::env::var_os(fake::STATE_ENV).map(std::path::PathBuf::from);
+    match argv.first().map(String::as_str) {
+        Some("serve") if argv.iter().any(|a| a == "--stdio") => {
+            fake::stream::serve(
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+                chrono::Utc::now,
+                state.as_deref(),
+            );
+            return;
+        }
+        Some("watch") => {
+            let tick = Duration::from_millis(200);
+            let code = fake::stream::watch(
+                &argv[1..],
+                std::io::stdout().lock(),
+                chrono::Utc::now,
+                state.as_deref(),
+                || true,
+                tick,
+            );
+            std::process::exit(code);
+        }
+        _ => {}
+    }
+    let fault = std::env::var(fake::FAULT_ENV).ok();
+    let out = fake::run_with_fault(&argv, chrono::Utc::now(), fault.as_deref(), state.as_deref());
     // A closed pipe is the reader's business, not an error worth a panic.
     let _ = std::io::stdout().write_all(out.stdout.as_bytes());
     let _ = std::io::stderr().write_all(out.stderr.as_bytes());
