@@ -62,6 +62,36 @@ detail, `s` `p` `a` `L` `P` set state, priority, assignee, labels, project, `c`
 creates (or comments, in an issue), `E` edits the description, `?` lists the
 rest. The demo takes no writes, but shows every dry run and confirm dialog.
 
+## In herdr
+
+linear-tui is also a [herdr](https://herdr.dev) plugin: Linear in a split
+beside your agents, or in a popup over them.
+
+![herdr with a project on its ENG-142 branch: git log on the left, and linear-tui in a split on the right showing ENG-142 with its screenshot drawn inline](docs/images/herdr-split.png)
+
+![The linear-tui popup over a herdr workspace, on the Active view](docs/images/herdr-popup.png)
+
+```sh
+herdr plugin install solcreek/linear-tui   # builds with cargo: needs Rust 1.90+
+herdr plugin action invoke linear-tui.demo
+```
+
+The actions are `linear-tui.open` (a split), `linear-tui.popup` and
+`linear-tui.demo`; bind one to a key in `~/.config/herdr/config.toml`:
+
+```toml
+[[keys.command]]
+key = "prefix+alt+l"
+type = "plugin_action"
+command = "linear-tui.open"
+description = "Linear"
+```
+
+`open` and `popup` need linearctl on the `PATH` herdr runs with, logged in as
+above. Images inside herdr need `LINEAR_TUI_ARGS="--images kitty"` in that
+environment (detection cannot see past herdr to your terminal), and show in a
+split but not in a popup.
+
 ## Tests
 
 All tests are Rust.
@@ -76,3 +106,5 @@ matching LLVM: `LLVM_COV=$(brew --prefix llvm@22)/bin/llvm-cov`
 
 Screenshots: `scripts/screenshots.sh` drives `--demo` in tmux, records what it
 writes (kitty graphics included) and renders that with termshot (`TERMSHOT=/path/to/termshot` if it is not on `PATH`).
+`scripts/herdr-screenshots.sh` does the same for the herdr plugin, in a herdr
+of its own that shares nothing with yours.
