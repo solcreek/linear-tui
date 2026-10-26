@@ -658,7 +658,7 @@ impl App {
         let chosen: Vec<String> = p.items.iter().filter(|i| i.chosen).map(|i| i.value.clone()).collect();
         match p.target {
             Target::Filter(slot) => {
-                self.choose_filter(slot, chosen, current);
+                self.choose_filter(slot, chosen, current, &p.query);
                 Vec::new()
             }
             Target::SavedView => match current {

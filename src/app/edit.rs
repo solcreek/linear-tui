@@ -58,9 +58,7 @@ impl App {
     /// Whether `--project none` clears a project: linearctl 0.6.0 and later
     /// (0.4.0 had the flag but took "none" as a project's name).
     pub(super) fn can_clear_project(&self) -> bool {
-        let Some(d) = &self.describe else { return true };
-        let mut v = d.version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
-        (v.next().unwrap_or(0), v.next().unwrap_or(0)) >= (0, 6)
+        self.at_least(0, 6)
     }
 
     /// `e`: the form for the open issue; from the list, open the issue

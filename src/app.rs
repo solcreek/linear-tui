@@ -518,6 +518,13 @@ impl App {
         }
     }
 
+    /// Whether linearctl is at least this version (all of them, when unknown).
+    pub fn at_least(&self, major: u32, minor: u32) -> bool {
+        let Some(d) = &self.describe else { return true };
+        let mut v = d.version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+        (v.next().unwrap_or(0), v.next().unwrap_or(0)) >= (major, minor)
+    }
+
     /// The order the list is in: chosen with `o`, else the view's, else
     /// linearctl's default; `None` for a search ranked by relevance.
     pub fn order(&self) -> Option<String> {
@@ -534,9 +541,11 @@ impl App {
 
     /// `o`: the next order, updated → created → priority.
     fn cycle_sort(&mut self) -> Vec<Effect> {
-        const ORDERS: [&str; 3] = ["updated", "created", "priority"];
-        let at = self.order().and_then(|o| ORDERS.iter().position(|x| *x == o));
-        self.sort = Some(ORDERS[at.map_or(0, |i| (i + 1) % ORDERS.len())]);
+        const ORDERS: [&str; 6] = ["updated", "created", "priority", "due-date", "title", "state"];
+        // The last three need linearctl 0.6.0; a search takes only the first.
+        let n = if self.at_least(0, 6) && self.search.is_none() { 6 } else { 3 };
+        let at = self.order().and_then(|o| ORDERS[..n].iter().position(|x| *x == o));
+        self.sort = Some(ORDERS[at.map_or(0, |i| (i + 1) % n)]);
         self.notice = Some(format!("Sorted by {}", self.sort.unwrap_or_default()));
         self.load_view()
     }
@@ -1445,28 +1454,45 @@ mod tests {
     fn o_cycles_the_order() {
         let mut app = started();
         assert_eq!(app.order().as_deref(), Some("priority"), "My issues sorts by priority");
-        let fx = drive(&mut app, ch('o'));
-        assert!(matches!(&fx[0], Effect::Run(Request::List { argv, .. })
-            if argv.windows(2).any(|w| w == ["--sort", "updated"]) && argv.iter().filter(|a| *a == "--sort").count() == 1));
-        assert_eq!(app.order().as_deref(), Some("updated"));
-        assert_eq!(app.notice.as_deref(), Some("Sorted by updated"));
+        // linearctl 0.6.0 (or unknown): six orders.
+        let mut seen = Vec::new();
+        for _ in 0..6 {
+            let fx = drive(&mut app, ch('o'));
+            assert!(matches!(&fx[0], Effect::Run(Request::List { argv, .. })
+                if argv.iter().filter(|a| *a == "--sort").count() == 1));
+            seen.push(app.order().unwrap());
+        }
+        assert_eq!(seen, ["due-date", "title", "state", "updated", "created", "priority"]);
+        assert_eq!(app.notice.as_deref(), Some("Sorted by priority"));
         drive(&mut app, ch('o'));
-        assert_eq!(app.order().as_deref(), Some("created"));
-        assert_eq!(ids(&app)[0], "ENG-143", "the newest created of mine");
-        drive(&mut app, ch('o'));
-        assert_eq!(app.order().as_deref(), Some("priority"));
-        // A view without --sort is in updated order; a new view drops the choice.
+        assert_eq!(ids(&app)[0], "ENG-140", "the one with a due date first");
+        // An older linearctl: the first three.
+        let old = include_str!("../tests/fixtures/linearctl-describe-0.1.0.json");
+        app.describe = Some(crate::contract::Describe::from_json(old).unwrap());
         drive(&mut app, ch('4'));
-        assert_eq!(app.order().as_deref(), Some("updated"));
+        assert_eq!(
+            app.order().as_deref(),
+            Some("updated"),
+            "a view without --sort; a new view drops the choice"
+        );
         drive(&mut app, ch('o'));
         assert_eq!(app.order().as_deref(), Some("created"));
-        // A search is by relevance until sorted.
+        assert_eq!(ids(&app)[0], "ENG-158");
+        drive(&mut app, ch('o'));
+        drive(&mut app, ch('o'));
+        assert_eq!(app.order().as_deref(), Some("updated"));
+        // A search is by relevance until sorted, and only by the first three.
+        app.describe = None;
         search_for(&mut app, "coupon");
         assert_eq!(app.order().as_deref(), None);
         let fx = drive(&mut app, ch('o'));
         assert!(
             matches!(&fx[0], Effect::Run(Request::List { argv, .. }) if argv.contains(&"--query".to_string()))
         );
+        assert_eq!(app.order().as_deref(), Some("updated"));
+        drive(&mut app, ch('o'));
+        drive(&mut app, ch('o'));
+        drive(&mut app, ch('o'));
         assert_eq!(app.order().as_deref(), Some("updated"));
     }
 

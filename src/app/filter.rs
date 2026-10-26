@@ -21,11 +21,15 @@ pub enum Slot {
     Cycle,
     Priority,
     Updated,
+    Creator,
+    DueAfter,
+    DueBefore,
     Sort,
+    Reverse,
 }
 
 /// The rows, their names, and the `issue list` flag each sets.
-pub const SLOTS: [(Slot, &str, &str); 12] = [
+pub const SLOTS: [(Slot, &str, &str); 16] = [
     (Slot::Team, "Team", "--team"),
     (Slot::Assignee, "Assignee", "--assignee"),
     (Slot::StateType, "Status type", "--state-type"),
@@ -37,7 +41,11 @@ pub const SLOTS: [(Slot, &str, &str); 12] = [
     (Slot::Cycle, "Cycle", "--cycle"),
     (Slot::Priority, "Priority", "--priority"),
     (Slot::Updated, "Updated", "--updated-since"),
+    (Slot::Creator, "Creator", "--creator"),
+    (Slot::DueAfter, "Due after", "--due-after"),
+    (Slot::DueBefore, "Due before", "--due-before"),
     (Slot::Sort, "Sort", "--sort"),
+    (Slot::Reverse, "Reverse", "--reverse"),
 ];
 
 fn flag_of(slot: Slot) -> &'static str {
@@ -72,6 +80,10 @@ impl FilterPanel {
         let mut p = FilterPanel { values: vec![Vec::new(); SLOTS.len()], slots, ..Default::default() };
         let mut it = args.iter();
         while let Some(a) = it.next() {
+            if a == "--reverse" && p.slots.contains(&Slot::Reverse) {
+                p.values[Self::index(Slot::Reverse)] = vec!["yes".into()];
+                continue;
+            }
             match SLOTS.iter().position(|s| s.2 == a.as_str()) {
                 Some(i) if p.slots.contains(&SLOTS[i].0) => {
                     if let Some(v) = it.next() {
@@ -104,7 +116,11 @@ impl FilterPanel {
         let mut a = Vec::new();
         for &slot in &self.slots {
             for v in self.get(slot) {
-                a.extend([flag_of(slot).to_string(), v.clone()]);
+                if slot == Slot::Reverse {
+                    a.push("--reverse".into());
+                } else {
+                    a.extend([flag_of(slot).to_string(), v.clone()]);
+                }
             }
         }
         a.extend(self.extra.iter().cloned());
@@ -121,7 +137,14 @@ const PRIORITIES: [(&str, &str); 5] =
     [("Urgent", "1"), ("High", "2"), ("Medium", "3"), ("Low", "4"), ("No priority", "0")];
 const UPDATED: [(&str, &str); 4] =
     [("Any time", ""), ("Last 24 hours", "24h"), ("Last 7 days", "7d"), ("Last 30 days", "30d")];
-const SORTS: [(&str, &str); 3] = [("Updated", "updated"), ("Created", "created"), ("Priority", "priority")];
+const SORTS: [(&str, &str); 6] = [
+    ("Updated", "updated"),
+    ("Created", "created"),
+    ("Priority", "priority"),
+    ("Due date", "due-date"),
+    ("Title", "title"),
+    ("Status", "state"),
+];
 
 fn item(label: &str, value: &str, chosen: bool) -> PickItem {
     PickItem { label: label.into(), value: value.into(), color: None, hint: String::new(), chosen }
@@ -130,9 +153,15 @@ fn item(label: &str, value: &str, chosen: bool) -> PickItem {
 impl App {
     /// The rows this linearctl can filter by.
     fn filter_slots(&self) -> Vec<Slot> {
-        let priority = ctl::list_argv(&["--priority".into(), "1".into()], 1, None);
-        let ok = self.describe.as_ref().is_none_or(|d| d.check_argv(&priority).is_empty());
-        SLOTS.iter().map(|s| s.0).filter(|s| *s != Slot::Priority || ok).collect()
+        let has = |flag: &str| {
+            let mut words = vec![flag.to_string()];
+            if flag != "--reverse" {
+                words.push("x".into());
+            }
+            let argv = ctl::list_argv(&words, 1, None);
+            self.describe.as_ref().is_none_or(|d| d.check_argv(&argv).is_empty())
+        };
+        SLOTS.iter().filter(|s| has(s.2)).map(|s| s.0).collect()
     }
 
     /// `f`: the panel, from what the list shows now.
@@ -162,6 +191,7 @@ impl App {
             Slot::LabelsAll | Slot::LabelsAny | Slot::LabelsNone => Some(Lookup::Labels),
             Slot::Project => Some(Lookup::Projects),
             Slot::Cycle => Some(Lookup::Cycles),
+            Slot::Creator => Some(Lookup::Users),
             _ => None,
         }
     }
@@ -218,7 +248,37 @@ impl App {
                 .iter()
                 .map(|(l, w)| item(l, w, if w.is_empty() { have.is_empty() } else { on(w) }))
                 .collect(),
-            Slot::Sort => SORTS.iter().map(|(l, s)| item(l, s, on(s))).collect(),
+            Slot::Sort => {
+                // Due date, title and status need linearctl 0.6.0.
+                let n = if self.at_least(0, 6) { SORTS.len() } else { 3 };
+                SORTS[..n].iter().map(|(l, s)| item(l, s, on(s))).collect()
+            }
+            Slot::Creator => {
+                let mut v = vec![
+                    item("Anyone", "", have.is_empty()),
+                    item("Me", "me", on("me")),
+                    item("Nobody (integrations)", "none", on("none")),
+                ];
+                v.extend(list(Lookup::Users).iter().map(|u| item(&u.name, &u.email, on(&u.email))));
+                v
+            }
+            Slot::DueAfter | Slot::DueBefore => {
+                let day = |n: i64| (self.now + chrono::Duration::days(n)).format("%Y-%m-%d").to_string();
+                let mut v = vec![item("Any date", "", have.is_empty())];
+                for (label, n) in [("Today", 0), ("In 7 days", 7), ("In 30 days", 30)] {
+                    let d = day(n);
+                    v.push(PickItem { hint: d.clone(), ..item(label, &d, on(&d)) });
+                }
+                // A date typed before: keep it on offer.
+                let typed: Vec<PickItem> = have
+                    .iter()
+                    .filter(|h| !v.iter().any(|i| &i.value == *h))
+                    .map(|h| item(h, h, true))
+                    .collect();
+                v.extend(typed);
+                v
+            }
+            Slot::Reverse => vec![item("No", "", have.is_empty()), item("Yes", "yes", on("yes"))],
         }
     }
 
@@ -244,7 +304,18 @@ impl App {
 
     /// A picker's choice for a row: the chosen values, or the one under the
     /// cursor for single rows.
-    pub(super) fn choose_filter(&mut self, slot: Slot, chosen: Vec<String>, current: Option<PickItem>) {
+    pub(super) fn choose_filter(
+        &mut self,
+        slot: Slot,
+        chosen: Vec<String>,
+        current: Option<PickItem>,
+        query: &str,
+    ) {
+        // A date typed into the picker, when no item matches it.
+        let typed = matches!(slot, Slot::DueAfter | Slot::DueBefore)
+            && current.is_none()
+            && chrono::NaiveDate::parse_from_str(query.trim(), "%Y-%m-%d").is_ok();
+        let current = if typed { Some(item(query.trim(), query.trim(), false)) } else { current };
         let Some(panel) = self.filters.as_mut() else { return };
         if multi(slot) {
             panel.set(slot, chosen);
@@ -718,6 +789,84 @@ mod tests {
         key(&mut app, KeyCode::Char('V'));
         assert!(app.overlay.is_none());
         assert_eq!(app.notice.as_deref(), Some("No saved issue views in this workspace."));
+    }
+
+    #[test]
+    fn creator_due_dates_and_reverse() {
+        let mut app = started();
+        key(&mut app, KeyCode::Char('4')); // Recent: everything updated this week
+        key(&mut app, KeyCode::Char('f'));
+        to_row(&mut app, Slot::Creator);
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.filters.as_ref().unwrap().get(Slot::Creator), ["me"]);
+        to_row(&mut app, Slot::DueBefore);
+        key(&mut app, KeyCode::Enter);
+        let labels: Vec<String> = picker(&app).items.iter().map(|i| i.label.clone()).collect();
+        assert_eq!(labels, ["Any date", "Today", "In 7 days", "In 30 days"]);
+        assert_eq!(picker(&app).items[2].hint, "2026-11-02");
+        // A date typed in.
+        for c in "2026-12-31".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.filters.as_ref().unwrap().get(Slot::DueBefore), ["2026-12-31"]);
+        // It stays on offer; a typed non-date sets nothing.
+        key(&mut app, KeyCode::Enter);
+        assert!(picker(&app).items.iter().any(|i| i.label == "2026-12-31" && i.chosen));
+        for c in "soon".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.filters.as_ref().unwrap().get(Slot::DueBefore), ["2026-12-31"]);
+        to_row(&mut app, Slot::Reverse);
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Enter);
+        to_row(&mut app, Slot::Sort);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(picker(&app).items.len(), 6, "due date, title and status too");
+        for c in "due".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter);
+        let args = app.filters.as_ref().unwrap().args();
+        assert_eq!(
+            args,
+            strings(&[
+                "--updated-since",
+                "7d",
+                "--creator",
+                "me",
+                "--due-before",
+                "2026-12-31",
+                "--sort",
+                "due-date",
+                "--reverse"
+            ])
+        );
+        assert_eq!(FilterPanel::from_args(&args, all()).args(), args, "round trip with --reverse");
+        ctrl(&mut app, 'a');
+        assert!(
+            ids(&app).is_empty(),
+            "Maya made none with a due date; undated ones are not due before anything"
+        );
+    }
+
+    #[test]
+    fn rows_need_their_flags() {
+        let mut app = started();
+        let old = include_str!("../../tests/fixtures/linearctl-describe-0.1.0.json");
+        app.describe = Some(crate::contract::Describe::from_json(old).unwrap());
+        key(&mut app, KeyCode::Char('f'));
+        let slots = &app.filters.as_ref().unwrap().slots;
+        for s in [Slot::Priority, Slot::Creator, Slot::DueAfter, Slot::DueBefore, Slot::Reverse] {
+            assert!(!slots.contains(&s), "{s:?}");
+        }
+        to_row(&mut app, Slot::Sort);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(picker(&app).items.len(), 3);
     }
 
     #[test]

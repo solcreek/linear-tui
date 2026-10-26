@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- With linearctl 0.6.0: `o` also sorts by due date, title and status, and
+  the filter panel has creator, due after, due before and reverse rows (a due
+  date can be typed as YYYY-MM-DD).
 - `V` shows one of Linear's saved issue views (linearctl 0.6.0), as a
   temporary view; `f` starts from it.
 - `e` edits an issue's fields in the form: title, status, priority,
