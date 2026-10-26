@@ -45,11 +45,7 @@ fn http_statuses() {
     assert_eq!(http.fetch(&format!("{base}/ok")).unwrap(), b"image bytes");
     assert_eq!(http.fetch(&format!("{base}/expired")), Err(FetchError::Expired));
     assert_eq!(http.fetch(&format!("{base}/forbidden")), Err(FetchError::Expired));
-    assert_eq!(
-        http.fetch(&format!("{base}/moved")),
-        Err(FetchError::Status(302)),
-        "no redirects"
-    );
+    assert_eq!(http.fetch(&format!("{base}/moved")), Err(FetchError::Status(302)), "no redirects");
     assert_eq!(http.fetch(&format!("{base}/boom")), Err(FetchError::Status(500)));
     assert_eq!(http.fetch(&format!("{base}/huge")), Err(FetchError::TooLarge));
 }
@@ -57,14 +53,8 @@ fn http_statuses() {
 #[test]
 fn http_refuses_plain_http_by_default() {
     let base = serve();
-    assert!(matches!(
-        Http::new().fetch(&format!("{base}/ok")),
-        Err(FetchError::Network(_))
-    ));
-    assert!(matches!(
-        Http::default().fetch("http://127.0.0.1:1/x"),
-        Err(FetchError::Network(_))
-    ));
+    assert!(matches!(Http::new().fetch(&format!("{base}/ok")), Err(FetchError::Network(_))));
+    assert!(matches!(Http::default().fetch("http://127.0.0.1:1/x"), Err(FetchError::Network(_))));
 }
 
 struct Expired;
@@ -82,8 +72,6 @@ fn an_expired_link_falls_back_to_linearctl_file_download() {
         fallback: Some(Runner::new(env!("CARGO_BIN_EXE_fake-linearctl"))),
     };
     // The fake refuses writes, file download included: the error comes through.
-    let err = loader
-        .load("https://uploads.linear.app/demo/checkout-error.png?signature=old")
-        .unwrap_err();
+    let err = loader.load("https://uploads.linear.app/demo/checkout-error.png?signature=old").unwrap_err();
     assert_eq!(err, "the demo workspace is read-only");
 }

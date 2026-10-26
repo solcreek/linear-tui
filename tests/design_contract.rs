@@ -9,12 +9,7 @@ const DESIGN: &str = include_str!("../docs/design.md");
 fn assert_design_matches(d: &Describe) {
     let (found, problems) = d.check_markdown(DESIGN);
     assert!(found > 0, "no linearctl invocations in docs/design.md");
-    assert!(
-        problems.is_empty(),
-        "docs/design.md vs linearctl {}:\n{}",
-        d.version,
-        problems.join("\n")
-    );
+    assert!(problems.is_empty(), "docs/design.md vs linearctl {}:\n{}", d.version, problems.join("\n"));
 }
 
 #[test]
@@ -39,11 +34,7 @@ fn the_app_works_with_both_releases() {
     use linear_tui::app::{default_views, missing};
     for snap in [SNAPSHOT, SNAPSHOT_0_3_0] {
         let d = Describe::from_json(snap).unwrap();
-        assert!(
-            missing(&d, &default_views()).is_empty(),
-            "linearctl {}",
-            d.version
-        );
+        assert!(missing(&d, &default_views()).is_empty(), "linearctl {}", d.version);
     }
 }
 

@@ -3,11 +3,7 @@
 use std::process::Command;
 
 fn tui(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_linear-tui"))
-        .args(args)
-        .env_remove("LINEARCTL")
-        .output()
-        .unwrap()
+    Command::new(env!("CARGO_BIN_EXE_linear-tui")).args(args).env_remove("LINEARCTL").output().unwrap()
 }
 
 #[test]
@@ -16,10 +12,7 @@ fn help_and_version_exit_0() {
     assert!(h.status.success());
     assert!(String::from_utf8_lossy(&h.stdout).contains("Usage: linear-tui [--demo]"));
     let v = tui(&["--version"]);
-    assert_eq!(
-        String::from_utf8_lossy(&v.stdout),
-        format!("linear-tui {}\n", env!("CARGO_PKG_VERSION"))
-    );
+    assert_eq!(String::from_utf8_lossy(&v.stdout), format!("linear-tui {}\n", env!("CARGO_PKG_VERSION")));
 }
 
 #[test]

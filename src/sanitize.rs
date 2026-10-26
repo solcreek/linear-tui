@@ -62,9 +62,6 @@ mod tests {
         let mut v =
             json!({"title": "a\x1bb", "items": [{"body": "\u{202e}x"}], "n": 1, "k\x07": "v", "ok": "fine"});
         clean_json(&mut v);
-        assert_eq!(
-            v,
-            json!({"title": "ab", "items": [{"body": "x"}], "n": 1, "k": "v", "ok": "fine"})
-        );
+        assert_eq!(v, json!({"title": "ab", "items": [{"body": "x"}], "n": 1, "k": "v", "ok": "fine"}));
     }
 }

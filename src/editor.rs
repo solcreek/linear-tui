@@ -5,9 +5,7 @@ use std::process::Command;
 /// Edit `text` in `$VISUAL`, else `$EDITOR`, else vi; `None` when the
 /// editor fails.
 pub fn edit(text: &str) -> Option<String> {
-    let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".into());
+    let editor = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")).unwrap_or_else(|_| "vi".into());
     edit_with(&editor, text)
 }
 
@@ -20,19 +18,9 @@ pub fn edit_with(editor: &str, text: &str) -> Option<String> {
     opts.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-    opts.open(&path)
-        .and_then(|mut f| std::io::Write::write_all(&mut f, text.as_bytes()))
-        .ok()?;
-    let ok = Command::new(&words[0])
-        .args(&words[1..])
-        .arg(&path)
-        .status()
-        .is_ok_and(|s| s.success());
-    let out = if ok {
-        std::fs::read_to_string(&path).ok()
-    } else {
-        None
-    };
+    opts.open(&path).and_then(|mut f| std::io::Write::write_all(&mut f, text.as_bytes())).ok()?;
+    let ok = Command::new(&words[0]).args(&words[1..]).arg(&path).status().is_ok_and(|s| s.success());
+    let out = if ok { std::fs::read_to_string(&path).ok() } else { None };
     let _ = std::fs::remove_file(&path);
     out
 }

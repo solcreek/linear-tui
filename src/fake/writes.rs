@@ -60,11 +60,7 @@ pub(super) fn write(
             }
             Item::Comment(issue, id) => {
                 let i = ws.issue(&issue).expect("the issue just commented");
-                let c = i["comments"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|c| comment_uuid(c) == id);
+                let c = i["comments"].as_array().into_iter().flatten().find(|c| comment_uuid(c) == id);
                 doc["comment"] = ws.comment(&issue, c.expect("the comment just written"));
             }
             Item::None => {}
@@ -89,10 +85,7 @@ fn not_found(what: &str, name: &str) -> Done {
 }
 
 fn issue_mut<'a>(raw: &'a mut Value, id: &str) -> Option<&'a mut Value> {
-    raw["issues"]
-        .as_array_mut()?
-        .iter_mut()
-        .find(|i| i["identifier"] == id || issue_uuid(i) == id)
+    raw["issues"].as_array_mut()?.iter_mut().find(|i| i["identifier"] == id || issue_uuid(i) == id)
 }
 
 /// A seed list's entry by name, ignoring case; its canonical name.
@@ -124,12 +117,7 @@ fn priority(v: &str) -> Result<i64, String> {
     v.parse::<i64>()
         .ok()
         .filter(|p| (0..=4).contains(p))
-        .or_else(|| {
-            names
-                .iter()
-                .position(|n| n.eq_ignore_ascii_case(v))
-                .map(|p| p as i64)
-        })
+        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(v)).map(|p| p as i64))
         .ok_or_else(|| format!("--priority: not 0-4 or none, urgent, high, medium, low: {v}"))
 }
 
@@ -140,9 +128,7 @@ fn text(args: &Args, flag: &str) -> Result<Option<String>, String> {
     }
     match args.one(&format!("{flag}-file")) {
         Some("-") => Err(format!("--{flag}-file -: the demo reads no stdin; pass a file")),
-        Some(path) => fs::read_to_string(path)
-            .map(Some)
-            .map_err(|e| format!("--{flag}-file {path}: {e}")),
+        Some(path) => fs::read_to_string(path).map(Some).map_err(|e| format!("--{flag}-file {path}: {e}")),
         None => Ok(None),
     }
 }
@@ -154,9 +140,7 @@ fn assignee(raw: &Value, who: &str) -> Result<Value, Done> {
         "none" => Ok(Value::Null),
         email => {
             let users = raw["users"].as_array().into_iter().flatten();
-            let found = users
-                .filter_map(|u| u["email"].as_str())
-                .find(|e| e.eq_ignore_ascii_case(email));
+            let found = users.filter_map(|u| u["email"].as_str()).find(|e| e.eq_ignore_ascii_case(email));
             found.map(Value::from).ok_or_else(|| not_found("user", email))
         }
     }
@@ -170,10 +154,7 @@ struct Fields {
 }
 
 fn fields(raw: &Value, args: &Args) -> Result<Result<Fields, Done>, String> {
-    let mut f = Fields {
-        seed: Map::new(),
-        input: Map::new(),
-    };
+    let mut f = Fields { seed: Map::new(), input: Map::new() };
     if let Some(t) = args.one("title") {
         f.seed.insert("title".into(), json!(t));
         f.input.insert("title".into(), json!(t));
@@ -199,10 +180,7 @@ fn fields(raw: &Value, args: &Args) -> Result<Result<Fields, Done>, String> {
             Ok(e) => e,
             Err(d) => return Ok(Err(d)),
         };
-        f.input.insert(
-            "assigneeId".into(),
-            email.as_str().map_or(Value::Null, |e| json!(user_id(e))),
-        );
+        f.input.insert("assigneeId".into(), email.as_str().map_or(Value::Null, |e| json!(user_id(e))));
         f.seed.insert("assignee".into(), email);
     }
     if !args.all("label").is_empty() {
@@ -213,10 +191,7 @@ fn fields(raw: &Value, args: &Args) -> Result<Result<Fields, Done>, String> {
             };
             names.push(name);
         }
-        f.input.insert(
-            "labelIds".into(),
-            json!(names.iter().map(|n| label_id(n)).collect::<Vec<_>>()),
-        );
+        f.input.insert("labelIds".into(), json!(names.iter().map(|n| label_id(n)).collect::<Vec<_>>()));
         f.seed.insert("labels".into(), json!(names));
     }
     if let Some(p) = args.one("project") {
@@ -277,9 +252,7 @@ fn update(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, Str
         v
     };
     let Some(issue) = issue_mut(raw, id) else {
-        return Ok(Done::Failed(format!(
-            "not found: issue {id} (or this API key cannot see it)"
-        )));
+        return Ok(Done::Failed(format!("not found: issue {id} (or this API key cannot see it)")));
     };
     let ident = issue["identifier"].as_str().unwrap_or_default().to_string();
     let mut input = Map::new();
@@ -293,12 +266,8 @@ fn update(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, Str
     for (k, v) in &f.seed {
         let differs = match k.as_str() {
             "labels" => {
-                let mut want: Vec<&str> = v
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .collect();
+                let mut want: Vec<&str> =
+                    v.as_array().into_iter().flatten().filter_map(Value::as_str).collect();
                 let mut have: Vec<&str> = current_labels.iter().map(String::as_str).collect();
                 want.sort_unstable();
                 have.sort_unstable();
@@ -376,38 +345,20 @@ const CREATE_FLAGS: &[&str] = &[
 fn create(raw: &mut Value, args: &Args, dry: bool) -> Result<Done, String> {
     args.only(CREATE_FLAGS)?;
     let team = args.one("team").ok_or("--team is required")?.to_string();
-    let title = args
-        .one("title")
-        .filter(|t| !t.trim().is_empty())
-        .ok_or("--title is required")?
-        .to_string();
+    let title = args.one("title").filter(|t| !t.trim().is_empty()).ok_or("--title is required")?.to_string();
     if !dry && args.one("id").is_none() {
         return Err("--id is required with --yes (take it from --dry-run)".into());
     }
-    let id = args
-        .one("id")
-        .map_or_else(|| uuid(&format!("new issue {title}")), str::to_string);
+    let id = args.one("id").map_or_else(|| uuid(&format!("new issue {title}")), str::to_string);
     let teams = raw["teams"].as_array().into_iter().flatten();
-    let Some(team) = teams
-        .filter_map(|t| t["key"].as_str())
-        .find(|k| k.eq_ignore_ascii_case(&team))
-    else {
+    let Some(team) = teams.filter_map(|t| t["key"].as_str()).find(|k| k.eq_ignore_ascii_case(&team)) else {
         return Ok(not_found("team", &team));
     };
     let team = team.to_string();
-    if let Some(existing) = raw["issues"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|i| issue_uuid(i) == id)
-    {
+    if let Some(existing) = raw["issues"].as_array().into_iter().flatten().find(|i| issue_uuid(i) == id) {
         let ident = existing["identifier"].as_str().unwrap_or_default().to_string();
         let doc = json!({"changed": false, "dryRun": dry, "id": id});
-        return Ok(Done::Doc {
-            doc,
-            changed: false,
-            item: Item::Issue(ident),
-        });
+        return Ok(Done::Doc { doc, changed: false, item: Item::Issue(ident) });
     }
     let f = match fields(raw, args)? {
         Ok(f) => f,
@@ -415,38 +366,21 @@ fn create(raw: &mut Value, args: &Args, dry: bool) -> Result<Done, String> {
     };
     let mut input = f.input;
     input.insert("id".into(), json!(id));
-    input.insert(
-        "teamId".into(),
-        json!(uuid(&format!("team {}", Value::from(team.as_str())))),
-    );
+    input.insert("teamId".into(), json!(uuid(&format!("team {}", Value::from(team.as_str())))));
     let doc = json!({"changed": true, "dryRun": dry, "id": id, "input": input});
     if dry {
-        return Ok(Done::Doc {
-            doc,
-            changed: true,
-            item: Item::None,
-        });
+        return Ok(Done::Doc { doc, changed: true, item: Item::None });
     }
     let next = raw["issues"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|i| {
-            i["identifier"]
-                .as_str()?
-                .strip_prefix(&format!("{team}-"))?
-                .parse::<u64>()
-                .ok()
-        })
+        .filter_map(|i| i["identifier"].as_str()?.strip_prefix(&format!("{team}-"))?.parse::<u64>().ok())
         .max()
         .unwrap_or(0)
         + 1;
     let ident = format!("{team}-{next}");
-    let backlog = raw["states"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|s| s["type"] == "backlog");
+    let backlog = raw["states"].as_array().into_iter().flatten().find(|s| s["type"] == "backlog");
     let mut issue = json!({
         "identifier": ident, "uuid": id, "title": title, "priority": 0,
         "state": backlog.map_or(Value::Null, |s| s["name"].clone()),
@@ -457,24 +391,15 @@ fn create(raw: &mut Value, args: &Args, dry: bool) -> Result<Done, String> {
         issue[k.as_str()] = v;
     }
     raw["issues"].as_array_mut().expect("issues").insert(0, issue);
-    Ok(Done::Doc {
-        doc,
-        changed: true,
-        item: Item::Issue(ident),
-    })
+    Ok(Done::Doc { doc, changed: true, item: Item::Issue(ident) })
 }
 
 fn archive(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, String> {
     args.only(&["dry-run", "yes"])?;
     let anchor = raw["anchor"].clone();
-    let key = raw["organization"]["urlKey"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let key = raw["organization"]["urlKey"].as_str().unwrap_or_default().to_string();
     let Some(issue) = issue_mut(raw, id) else {
-        return Ok(Done::Failed(format!(
-            "not found: issue {id} (or this API key cannot see it)"
-        )));
+        return Ok(Done::Failed(format!("not found: issue {id} (or this API key cannot see it)")));
     };
     let ident = issue["identifier"].as_str().unwrap_or_default().to_string();
     let changed = issue["archivedAt"].is_null();
@@ -483,45 +408,27 @@ fn archive(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, St
     }
     let url = format!("https://linear.app/{key}/issue/{ident}");
     let doc = json!({"changed": changed, "dryRun": dry, "identifier": ident, "url": url});
-    Ok(Done::Doc {
-        doc,
-        changed,
-        item: Item::None,
-    })
+    Ok(Done::Doc { doc, changed, item: Item::None })
 }
 
 fn comment(raw: &mut Value, issue_id: &str, args: &Args, dry: bool) -> Result<Done, String> {
     args.only(&["body", "body-file", "id", "dry-run", "yes"])?;
-    let body = text(args, "body")?
-        .filter(|b| !b.trim().is_empty())
-        .ok_or("--body or --body-file is required")?;
+    let body =
+        text(args, "body")?.filter(|b| !b.trim().is_empty()).ok_or("--body or --body-file is required")?;
     if !dry && args.one("id").is_none() {
         return Err("--id is required with --yes (take it from --dry-run)".into());
     }
-    let id = args
-        .one("id")
-        .map_or_else(|| uuid(&format!("new comment {body}")), str::to_string);
+    let id = args.one("id").map_or_else(|| uuid(&format!("new comment {body}")), str::to_string);
     let viewer = raw["viewer"].clone();
     let anchor = raw["anchor"].clone();
     let Some(issue) = issue_mut(raw, issue_id) else {
-        return Ok(Done::Failed(format!(
-            "not found: issue {issue_id} (or this API key cannot see it)"
-        )));
+        return Ok(Done::Failed(format!("not found: issue {issue_id} (or this API key cannot see it)")));
     };
     let ident = issue["identifier"].as_str().unwrap_or_default().to_string();
     let issue_uuid = issue_uuid(issue);
-    if issue["comments"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|c| comment_uuid(c) == id)
-    {
+    if issue["comments"].as_array().into_iter().flatten().any(|c| comment_uuid(c) == id) {
         let doc = json!({"changed": false, "dryRun": dry, "id": id});
-        return Ok(Done::Doc {
-            doc,
-            changed: false,
-            item: Item::Comment(ident, id),
-        });
+        return Ok(Done::Doc { doc, changed: false, item: Item::Comment(ident, id) });
     }
     let doc = json!({"changed": true, "dryRun": dry, "id": id,
                      "input": {"body": body, "id": id, "issueId": issue_uuid}});
@@ -533,11 +440,7 @@ fn comment(raw: &mut Value, issue_id: &str, args: &Args, dry: bool) -> Result<Do
         issue["comments"].as_array_mut().expect("comments").push(c);
         issue["updatedAt"] = anchor;
     }
-    Ok(Done::Doc {
-        doc,
-        changed: true,
-        item: if dry { Item::None } else { Item::Comment(ident, id) },
-    })
+    Ok(Done::Doc { doc, changed: true, item: if dry { Item::None } else { Item::Comment(ident, id) } })
 }
 
 #[cfg(test)]
@@ -575,10 +478,8 @@ mod tests {
 
     #[test]
     fn update_dry_run_resolves_names_to_ids() {
-        let (code, v) = go(
-            "issue update ENG-142 --state 'in review' --priority high --label bug --dry-run --json",
-            None,
-        );
+        let (code, v) =
+            go("issue update ENG-142 --state 'in review' --priority high --label bug --dry-run --json", None);
         assert_eq!(code, 0);
         assert_eq!(v["changed"], true);
         assert_eq!(v["dryRun"], true);
@@ -592,28 +493,16 @@ mod tests {
         assert_eq!(keys, ["labelIds", "priority", "stateId"]);
         // The ids match what reads report.
         let (_, states) = go("state list --json", None);
-        assert!(
-            states["items"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|s| s["id"] == input["stateId"])
-        );
+        assert!(states["items"].as_array().unwrap().iter().any(|s| s["id"] == input["stateId"]));
     }
 
     #[test]
     fn nothing_to_change_is_changed_false() {
-        let (code, v) = go(
-            "issue update ENG-142 --state 'In Progress' --assignee me --dry-run --json",
-            None,
-        );
+        let (code, v) = go("issue update ENG-142 --state 'In Progress' --assignee me --dry-run --json", None);
         assert_eq!(code, 0);
         assert_eq!(v["changed"], false);
         assert_eq!(v["input"], json!({}));
-        let (_, v) = go(
-            "issue update ENG-142 --label 'customer reported' --label bug --yes --json",
-            None,
-        );
+        let (_, v) = go("issue update ENG-142 --label 'customer reported' --label bug --yes --json", None);
         assert_eq!(v["changed"], false, "same labels in another order and case");
         assert!(v.get("issue").is_none(), "nothing changed, nothing returned");
     }
@@ -638,32 +527,18 @@ mod tests {
         assert_eq!(v["issue"]["assignee"]["name"], "Jonas Berg");
         assert_eq!(v["input"]["addedLabelIds"], json!([label_id("Security")]));
         assert_eq!(v["input"]["removedLabelIds"], json!([label_id("Bug")]));
-        let names: Vec<&str> = v["issue"]["labels"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|l| l["name"].as_str().unwrap())
-            .collect();
+        let names: Vec<&str> =
+            v["issue"]["labels"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["Customer reported", "Security"]);
         assert_eq!(v["issue"]["updatedAt"], "2026-10-26T12:00:00.000Z", "updated now");
         // A later read sees it; adding a label it has is nothing to do.
         let (_, show) = go("issue show ENG-142 --json", Some(&st));
         assert_eq!(show["issue"]["state"]["name"], "Done");
-        let (_, again) = go(
-            "issue update ENG-142 --add-label security --remove-label Bug --yes --json",
-            Some(&st),
-        );
+        let (_, again) =
+            go("issue update ENG-142 --add-label security --remove-label Bug --yes --json", Some(&st));
         assert_eq!(again["changed"], false);
-        let (_, d) = go(
-            "issue update ENG-142 --description-file /nonexistent --dry-run --json",
-            Some(&st),
-        );
-        assert!(
-            d["error"]
-                .as_str()
-                .unwrap()
-                .contains("--description-file /nonexistent")
-        );
+        let (_, d) = go("issue update ENG-142 --description-file /nonexistent --dry-run --json", Some(&st));
+        assert!(d["error"].as_str().unwrap().contains("--description-file /nonexistent"));
     }
 
     #[test]
@@ -695,66 +570,22 @@ mod tests {
     #[test]
     fn update_errors() {
         for (cmd, code, needle) in [
-            (
-                "issue update ENG-142 --state Nope --dry-run --json",
-                1,
-                "not found: state \"Nope\"",
-            ),
-            (
-                "issue update ENG-142 --label Nope --dry-run --json",
-                1,
-                "not found: label \"Nope\"",
-            ),
-            (
-                "issue update ENG-142 --add-label Nope --dry-run --json",
-                1,
-                "not found: label \"Nope\"",
-            ),
+            ("issue update ENG-142 --state Nope --dry-run --json", 1, "not found: state \"Nope\""),
+            ("issue update ENG-142 --label Nope --dry-run --json", 1, "not found: label \"Nope\""),
+            ("issue update ENG-142 --add-label Nope --dry-run --json", 1, "not found: label \"Nope\""),
             (
                 "issue update ENG-142 --assignee x@y.example --dry-run --json",
                 1,
                 "not found: user \"x@y.example\"",
             ),
-            (
-                "issue update ENG-142 --project Nope --dry-run --json",
-                1,
-                "not found: project \"Nope\"",
-            ),
-            (
-                "issue update ENG-142 --parent ENG-999 --dry-run --json",
-                1,
-                "not found: issue \"ENG-999\"",
-            ),
-            (
-                "issue update ENG-999 --priority 1 --dry-run --json",
-                1,
-                "not found: issue ENG-999",
-            ),
-            (
-                "issue update ENG-142 --priority 9 --dry-run --json",
-                2,
-                "--priority",
-            ),
-            (
-                "issue update ENG-142 --priority 1 --json",
-                2,
-                "exactly one of --dry-run and --yes",
-            ),
-            (
-                "issue update ENG-142 --priority 1 --dry-run --yes --json",
-                2,
-                "exactly one",
-            ),
-            (
-                "issue update ENG-142 --description-file - --dry-run --json",
-                2,
-                "reads no stdin",
-            ),
-            (
-                "issue update ENG-142 --bogus 1 --dry-run --json",
-                2,
-                "unknown flag",
-            ),
+            ("issue update ENG-142 --project Nope --dry-run --json", 1, "not found: project \"Nope\""),
+            ("issue update ENG-142 --parent ENG-999 --dry-run --json", 1, "not found: issue \"ENG-999\""),
+            ("issue update ENG-999 --priority 1 --dry-run --json", 1, "not found: issue ENG-999"),
+            ("issue update ENG-142 --priority 9 --dry-run --json", 2, "--priority"),
+            ("issue update ENG-142 --priority 1 --json", 2, "exactly one of --dry-run and --yes"),
+            ("issue update ENG-142 --priority 1 --dry-run --yes --json", 2, "exactly one"),
+            ("issue update ENG-142 --description-file - --dry-run --json", 2, "reads no stdin"),
+            ("issue update ENG-142 --bogus 1 --dry-run --json", 2, "unknown flag"),
         ] {
             let (c, v) = go(cmd, None);
             assert_eq!(c, code, "{cmd}: {v}");
@@ -787,13 +618,8 @@ mod tests {
         assert_eq!(again["issue"]["identifier"], "ENG-159");
         let (_, list) = go("issue list --limit 1 --json", Some(&st));
         assert_eq!(list["items"][0]["identifier"], "ENG-159");
-        let (_, plain) = go(
-            &format!(
-                "issue create --team ENG --title Plain --id {} --yes --json",
-                uuid("x")
-            ),
-            Some(&st),
-        );
+        let (_, plain) =
+            go(&format!("issue create --team ENG --title Plain --id {} --yes --json", uuid("x")), Some(&st));
         assert_eq!(plain["issue"]["state"]["name"], "Backlog", "the default state");
     }
 
@@ -804,10 +630,7 @@ mod tests {
             ("issue create --team ENG --dry-run --json", 2),
             ("issue create --team ENG --title x --yes --json", 2),
             ("issue create --team WEB --title x --dry-run --json", 1),
-            (
-                "issue create --team ENG --title x --state nope --dry-run --json",
-                1,
-            ),
+            ("issue create --team ENG --title x --state nope --dry-run --json", 1),
             ("issue create --team ENG --title x --bogus 1 --dry-run --json", 2),
         ] {
             assert_eq!(go(cmd, None).0, code, "{cmd}");
@@ -836,10 +659,7 @@ mod tests {
     #[test]
     fn comments() {
         let st = state("comment");
-        let (_, dry) = go(
-            "comment create ENG-158 --body 'On it' --dry-run --json",
-            Some(&st),
-        );
+        let (_, dry) = go("comment create ENG-158 --body 'On it' --dry-run --json", Some(&st));
         let id = dry["id"].as_str().unwrap().to_string();
         assert_eq!(dry["input"]["body"], "On it");
         let cmd = format!("comment create ENG-158 --body 'On it' --id {id} --yes --json");
@@ -853,22 +673,13 @@ mod tests {
         let (_, show) = go("issue show ENG-158 --json", Some(&st));
         assert_eq!(show["issue"]["comments"].as_array().unwrap().len(), 2);
         // An issue with no comments yet.
-        let (code, _) = go(
-            &format!(
-                "comment create ENG-155 --body first --id {} --yes --json",
-                uuid("c2")
-            ),
-            Some(&st),
-        );
+        let (code, _) =
+            go(&format!("comment create ENG-155 --body first --id {} --yes --json", uuid("c2")), Some(&st));
         assert_eq!(code, 0);
         assert_eq!(go("comment create ENG-158 --dry-run --json", None).0, 2);
         assert_eq!(go("comment create ENG-158 --body x --yes --json", None).0, 2);
         assert_eq!(go("comment create ENG-999 --body x --dry-run --json", None).0, 1);
-        assert_eq!(
-            go("comment create ENG-158 --body x --id abc --yes --json", None).0,
-            1,
-            "read-only"
-        );
+        assert_eq!(go("comment create ENG-158 --body x --id abc --yes --json", None).0, 1, "read-only");
     }
 
     #[test]

@@ -32,11 +32,7 @@ pub struct Output {
 
 impl Output {
     fn ok(v: Value) -> Self {
-        Self {
-            code: 0,
-            stdout: format!("{v}\n"),
-            stderr: String::new(),
-        }
+        Self { code: 0, stdout: format!("{v}\n"), stderr: String::new() }
     }
 
     fn page(items: Vec<Value>, limit: usize, cursor: Option<&str>) -> Self {
@@ -48,18 +44,10 @@ impl Output {
             None => 0,
         };
         let rest = &items[start.min(items.len())..];
-        let n = if limit == 0 {
-            rest.len()
-        } else {
-            limit.min(rest.len())
-        };
+        let n = if limit == 0 { rest.len() } else { limit.min(rest.len()) };
         let truncated = n < rest.len();
         let shown = rest[..n].to_vec();
-        let next = if truncated {
-            shown.last().map(|i| i["id"].clone())
-        } else {
-            None
-        };
+        let next = if truncated { shown.last().map(|i| i["id"].clone()) } else { None };
         let mut out = Self::ok(json!({
             "items": shown, "total": null, "shown": n, "truncated": truncated,
             "nextCursor": next.clone().unwrap_or(Value::Null),
@@ -111,9 +99,7 @@ impl Args {
                 Some((n, v)) => (n.to_string(), v.to_string()),
                 None if BOOLEAN.contains(&flag) => (flag.to_string(), "true".into()),
                 None => {
-                    let v = it
-                        .next()
-                        .ok_or_else(|| format!("flag needs an argument: --{flag}"))?;
+                    let v = it.next().ok_or_else(|| format!("flag needs an argument: --{flag}"))?;
                     (flag.to_string(), v.clone())
                 }
             };
@@ -137,20 +123,15 @@ impl Args {
     /// Fail on any flag not in `known` (global flags are always allowed).
     fn only(&self, known: &[&str]) -> Result<(), String> {
         let global = ["json", "timeout"];
-        match self
-            .flags
-            .keys()
-            .find(|k| !known.contains(&k.as_str()) && !global.contains(&k.as_str()))
-        {
+        match self.flags.keys().find(|k| !known.contains(&k.as_str()) && !global.contains(&k.as_str())) {
             Some(k) => Err(format!("unknown flag: --{k}")),
             None => Ok(()),
         }
     }
 
     fn limit(&self, default: usize) -> Result<usize, String> {
-        self.one("limit").map_or(Ok(default), |v| {
-            v.parse().map_err(|_| format!("--limit: not a number: {v}"))
-        })
+        self.one("limit")
+            .map_or(Ok(default), |v| v.parse().map_err(|_| format!("--limit: not a number: {v}")))
     }
 }
 
@@ -194,11 +175,7 @@ pub fn run_in(argv: &[String], now: DateTime<Utc>, state: Option<&std::path::Pat
             };
         }
         ["describe"] => {
-            return Output {
-                code: 0,
-                stdout: DESCRIBE.into(),
-                stderr: String::new(),
-            };
+            return Output { code: 0, stdout: DESCRIBE.into(), stderr: String::new() };
         }
         ["auth", "status"] => args.only(&[]).map(|()| Output::ok(ws.auth_status())),
         ["team", "list"] => list(&args, &[], || ws.teams()),
@@ -262,16 +239,8 @@ pub fn run_with_fault(
             }
             Err(_) => Output::usage(&format!("{FAULT_ENV}: bad sleep: {arg}")),
         },
-        "garbage" => Output {
-            code: 0,
-            stdout: "this is not json\n".into(),
-            stderr: String::new(),
-        },
-        "crash" => Output {
-            code: 101,
-            stdout: String::new(),
-            stderr: "thread 'main' panicked\n".into(),
-        },
+        "garbage" => Output { code: 0, stdout: "this is not json\n".into(), stderr: String::new() },
+        "crash" => Output { code: 101, stdout: String::new(), stderr: "thread 'main' panicked\n".into() },
         "busy-once" => {
             let marker = std::path::Path::new(arg);
             if marker.exists() {
@@ -317,9 +286,8 @@ fn pick(item: &Value, fields: &str) -> Value {
 /// A stable UUID-shaped id from a name, so ids are the same on every run.
 fn uuid(name: &str) -> String {
     let h = |seed: u64| {
-        name.bytes().fold(0xcbf2_9ce4_8422_2325 ^ seed, |h, b| {
-            (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
-        })
+        name.bytes()
+            .fold(0xcbf2_9ce4_8422_2325 ^ seed, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
     };
     let (a, b) = (h(1), h(2));
     format!(
@@ -335,17 +303,12 @@ fn uuid(name: &str) -> String {
 /// An issue's id: the one it was created with, else derived from its
 /// identifier.
 fn issue_uuid(i: &Value) -> String {
-    i["uuid"].as_str().map_or_else(
-        || uuid(i["identifier"].as_str().unwrap_or_default()),
-        str::to_string,
-    )
+    i["uuid"].as_str().map_or_else(|| uuid(i["identifier"].as_str().unwrap_or_default()), str::to_string)
 }
 
 /// A comment's id, the same way.
 fn comment_uuid(c: &Value) -> String {
-    c["uuid"]
-        .as_str()
-        .map_or_else(|| uuid(c["id"].as_str().unwrap_or_default()), str::to_string)
+    c["uuid"].as_str().map_or_else(|| uuid(c["id"].as_str().unwrap_or_default()), str::to_string)
 }
 
 fn priority_label(p: i64) -> &'static str {
@@ -359,20 +322,9 @@ fn priority_label(p: i64) -> &'static str {
 }
 
 fn slug(title: &str) -> String {
-    let s: String = title
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    s.split('-')
-        .filter(|w| !w.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
+    let s: String =
+        title.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
+    s.split('-').filter(|w| !w.is_empty()).collect::<Vec<_>>().join("-")
 }
 
 /// The seed, with times shifted to `now`.
@@ -395,10 +347,7 @@ impl Workspace {
     }
 
     fn user(&self, email: &str) -> Option<&Value> {
-        self.seed["users"]
-            .as_array()?
-            .iter()
-            .find(|u| u["email"] == email)
+        self.seed["users"].as_array()?.iter().find(|u| u["email"] == email)
     }
 
     fn user_ref(&self, email: &Value) -> Value {
@@ -413,16 +362,11 @@ impl Workspace {
     }
 
     fn issues(&self) -> &[Value] {
-        self.seed["issues"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+        self.seed["issues"].as_array().map(Vec::as_slice).unwrap_or_default()
     }
 
     fn issue(&self, id: &str) -> Option<&Value> {
-        self.issues()
-            .iter()
-            .find(|i| i["identifier"] == id || issue_uuid(i) == id)
+        self.issues().iter().find(|i| i["identifier"] == id || issue_uuid(i) == id)
     }
 
     fn team(&self) -> &Value {
@@ -609,39 +553,25 @@ impl Workspace {
             .flatten()
             .filter_map(|r| {
                 let other = self.issue(r["issue"].as_str()?)?;
-                Some(
-                    json!({"id": uuid(&format!("{ident} {}", r["issue"])), "type": r["type"],
-                            "relatedIssue": brief(other)}),
-                )
+                Some(json!({"id": uuid(&format!("{ident} {}", r["issue"])), "type": r["type"],
+                            "relatedIssue": brief(other)}))
             })
             .collect();
         let all_comments = i["comments"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let comments: Vec<Value> = all_comments
-            .iter()
-            .take(comments)
-            .map(|c| self.comment(ident, c))
-            .collect();
+        let comments: Vec<Value> =
+            all_comments.iter().take(comments).map(|c| self.comment(ident, c)).collect();
         let branch_user = self
             .user(i["assignee"].as_str().unwrap_or_default())
             .and_then(|u| u["displayName"].as_str())
             .unwrap_or("unassigned");
         let m = d.as_object_mut().expect("row is an object");
         let field = |k: &str| i.get(k).cloned().unwrap_or(Value::Null);
-        for k in [
-            "description",
-            "dueDate",
-            "estimate",
-            "startedAt",
-            "completedAt",
-            "canceledAt",
-            "archivedAt",
-        ] {
+        for k in
+            ["description", "dueDate", "estimate", "startedAt", "completedAt", "canceledAt", "archivedAt"]
+        {
             m.insert(k.into(), field(k));
         }
-        let parent = i["parent"]
-            .as_str()
-            .and_then(|p| self.issue(p))
-            .map_or(Value::Null, brief);
+        let parent = i["parent"].as_str().and_then(|p| self.issue(p)).map_or(Value::Null, brief);
         let branch = format!(
             "{branch_user}/{}-{}",
             ident.to_ascii_lowercase(),
@@ -652,10 +582,7 @@ impl Workspace {
         m.insert("parent".into(), parent);
         m.insert("children".into(), json!(children));
         m.insert("relations".into(), json!(relations));
-        m.insert(
-            "attachments".into(),
-            i.get("attachments").cloned().unwrap_or(json!([])),
-        );
+        m.insert("attachments".into(), i.get("attachments").cloned().unwrap_or(json!([])));
         m.insert("comments".into(), json!(comments));
         d
     }
@@ -675,9 +602,7 @@ impl Workspace {
         };
         let mut d = self.detail(i, comments);
         let secs: u64 = match args.one("signed-urls") {
-            Some(n) => n
-                .parse()
-                .map_err(|_| format!("--signed-urls: not a number: {n}"))?,
+            Some(n) => n.parse().map_err(|_| format!("--signed-urls: not a number: {n}"))?,
             None => 0,
         };
         if secs > 0 {
@@ -694,17 +619,8 @@ impl Workspace {
             return Ok(Self::not_found(id));
         };
         let ident = i["identifier"].as_str().unwrap_or_default();
-        let all = i["comments"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|c| self.comment(ident, c))
-            .collect();
-        Ok(Output::page(
-            pick_all(all, args.one("fields")),
-            limit,
-            args.one("cursor"),
-        ))
+        let all = i["comments"].as_array().into_iter().flatten().map(|c| self.comment(ident, c)).collect();
+        Ok(Output::page(pick_all(all, args.one("fields")), limit, args.one("cursor")))
     }
 
     fn issue_list(&self, args: &Args) -> Result<Output, String> {
@@ -726,22 +642,14 @@ impl Workspace {
             "fields",
         ])?;
         let limit = args.limit(25)?;
-        let since = args
-            .one("updated-since")
-            .map(|w| since(w, self.now))
-            .transpose()?;
+        let since = args.one("updated-since").map(|w| since(w, self.now)).transpose()?;
         let cycle = match args.one("cycle") {
             None => None,
             Some("current") => Some(self.current_cycle().unwrap_or(Value::Null)),
-            Some("next") => Some(
-                self.current_cycle()
-                    .and_then(|c| Some(json!(c.as_i64()? + 1)))
-                    .unwrap_or(Value::Null),
-            ),
-            Some(n) => Some(json!(
-                n.parse::<i64>()
-                    .map_err(|_| format!("--cycle: not a cycle: {n}"))?
-            )),
+            Some("next") => {
+                Some(self.current_cycle().and_then(|c| Some(json!(c.as_i64()? + 1))).unwrap_or(Value::Null))
+            }
+            Some(n) => Some(json!(n.parse::<i64>().map_err(|_| format!("--cycle: not a cycle: {n}"))?)),
         };
         let viewer = self.seed["viewer"].as_str().unwrap_or_default();
         let query = args.one("query").map(str::to_lowercase);
@@ -751,21 +659,13 @@ impl Workspace {
             // Archived issues drop out of lists, as in Linear.
             .filter(|i| i["archivedAt"].is_null())
             .filter(|i| {
-                let labels: Vec<&str> = i["labels"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .collect();
-                let state_type = self
-                    .named("states", i["state"].as_str().unwrap_or_default())
-                    .map(|s| &s["type"]);
+                let labels: Vec<&str> =
+                    i["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                let state_type =
+                    self.named("states", i["state"].as_str().unwrap_or_default()).map(|s| &s["type"]);
                 let text = || {
-                    let comments = i["comments"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .map(|c| c["body"].to_string());
+                    let comments =
+                        i["comments"].as_array().into_iter().flatten().map(|c| c["body"].to_string());
                     [i["title"].to_string(), i["description"].to_string()]
                         .into_iter()
                         .chain(comments)
@@ -781,22 +681,14 @@ impl Workspace {
                     && (args.all("state").is_empty()
                         || args.all("state").iter().any(|s| i["state"] == s.as_str()))
                     && (args.all("state-type").is_empty()
-                        || args
-                            .all("state-type")
-                            .iter()
-                            .any(|t| state_type.is_some_and(|s| s == t.as_str())))
+                        || args.all("state-type").iter().any(|t| state_type.is_some_and(|s| s == t.as_str())))
                     && args.all("label").iter().all(|l| labels.contains(&l.as_str()))
                     && (args.all("any-label").is_empty()
                         || args.all("any-label").iter().any(|l| labels.contains(&l.as_str())))
-                    && !args
-                        .all("without-label")
-                        .iter()
-                        .any(|l| labels.contains(&l.as_str()))
+                    && !args.all("without-label").iter().any(|l| labels.contains(&l.as_str()))
                     && args.one("project").is_none_or(|p| i["project"] == p)
                     && cycle.as_ref().is_none_or(|c| &i["cycle"] == c)
-                    && since
-                        .as_ref()
-                        .is_none_or(|s| i["updatedAt"].as_str().is_some_and(|u| u >= s.as_str()))
+                    && since.as_ref().is_none_or(|s| i["updatedAt"].as_str().is_some_and(|u| u >= s.as_str()))
                     && query.as_ref().is_none_or(|q| text().contains(q.as_str()))
             })
             .collect();
@@ -812,11 +704,7 @@ impl Workspace {
             s => return Err(format!("--sort: not one of updated, created, priority: {s}")),
         }
         let rows = issues.into_iter().map(|i| self.row(i)).collect();
-        Ok(Output::page(
-            pick_all(rows, args.one("fields")),
-            limit,
-            args.one("cursor"),
-        ))
+        Ok(Output::page(pick_all(rows, args.one("fields")), limit, args.one("cursor")))
     }
 }
 
@@ -911,12 +799,7 @@ mod tests {
     }
 
     fn idents(v: &Value) -> Vec<String> {
-        v["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|i| i["identifier"].as_str().unwrap().to_string())
-            .collect()
+        v["items"].as_array().unwrap().iter().map(|i| i["identifier"].as_str().unwrap().to_string()).collect()
     }
 
     #[test]
@@ -952,12 +835,8 @@ mod tests {
         assert_eq!(projects["shown"], 2);
         assert_eq!(projects["items"][0]["status"]["name"], "Started");
         let cycles = json_of("cycle list --json");
-        let active: Vec<_> = cycles["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|c| c["isActive"] == true)
-            .collect();
+        let active: Vec<_> =
+            cycles["items"].as_array().unwrap().iter().filter(|c| c["isActive"] == true).collect();
         assert_eq!(active[0]["number"], 24);
         assert_eq!(cycles["items"][2]["isNext"], true);
     }
@@ -1012,10 +891,8 @@ mod tests {
         assert!(first.stderr.contains("5 shown, more remain; --cursor"));
         let v: Value = serde_json::from_str(&first.stdout).unwrap();
         assert_eq!(v["truncated"], true);
-        let next = json_of(&format!(
-            "issue list --limit 5 --cursor {} --json",
-            v["nextCursor"].as_str().unwrap()
-        ));
+        let next =
+            json_of(&format!("issue list --limit 5 --cursor {} --json", v["nextCursor"].as_str().unwrap()));
         assert_eq!(idents(&next)[0], idents(&json_of("issue list --json"))[5]);
         assert_eq!(json_of("issue list --limit 0 --json")["shown"], 17);
         assert_eq!(go("issue list --cursor nope --json").code, 1);
@@ -1025,24 +902,12 @@ mod tests {
     fn filters() {
         let ids = |cmd: &str| idents(&json_of(cmd));
         assert_eq!(ids("issue list --assignee me --json").len(), 4);
-        assert_eq!(
-            ids("issue list --assignee none --json"),
-            ["ENG-157", "ENG-155", "ENG-156"]
-        );
-        assert_eq!(
-            ids("issue list --assignee sofia@northwind.example --json").len(),
-            2
-        );
+        assert_eq!(ids("issue list --assignee none --json"), ["ENG-157", "ENG-155", "ENG-156"]);
+        assert_eq!(ids("issue list --assignee sofia@northwind.example --json").len(), 2);
         assert_eq!(ids("issue list --state-type triage --json").len(), 2);
         assert_eq!(ids("issue list --state Done --state Backlog --json").len(), 3);
-        assert_eq!(
-            ids("issue list --label Bug --label 'Customer reported' --json"),
-            ["ENG-158", "ENG-142"]
-        );
-        assert_eq!(
-            ids("issue list --any-label Security --any-label Performance --json").len(),
-            2
-        );
+        assert_eq!(ids("issue list --label Bug --label 'Customer reported' --json"), ["ENG-158", "ENG-142"]);
+        assert_eq!(ids("issue list --any-label Security --any-label Performance --json").len(), 2);
         assert!(!ids("issue list --without-label Bug --json").contains(&"ENG-142".to_string()));
         assert_eq!(ids("issue list --project 'Mobile 3.0' --json").len(), 2);
         assert_eq!(ids("issue list --cycle current --json").len(), 8);
@@ -1051,17 +916,10 @@ mod tests {
         assert_eq!(ids("issue list --team ENG --json").len(), 17);
         assert!(ids("issue list --team WEB --json").is_empty());
         assert_eq!(ids("issue list --query 'n+1' --json"), ["ENG-149"]);
-        assert_eq!(
-            ids("issue list --query 'android 3.4.0' --json"),
-            ["ENG-142"],
-            "searches comments"
-        );
+        assert_eq!(ids("issue list --query 'android 3.4.0' --json"), ["ENG-142"], "searches comments");
         assert_eq!(ids("issue list --updated-since 24h --json").len(), 8);
         assert_eq!(ids("issue list --updated-since 2026-10-26 --json").len(), 5);
-        assert_eq!(
-            ids("issue list --updated-since 2026-10-26T11:00:00Z --json").len(),
-            2
-        );
+        assert_eq!(ids("issue list --updated-since 2026-10-26T11:00:00Z --json").len(), 2);
         assert_eq!(ids("issue list --updated-since 30d --json").len(), 17);
     }
 
@@ -1080,70 +938,39 @@ mod tests {
         let v = json_of("issue list --limit 1 --fields identifier,title --json");
         assert_eq!(v["items"][0].as_object().unwrap().len(), 2);
         let s = json_of("issue show ENG-142 --fields updatedAt --comments=0 --json");
-        assert_eq!(
-            s["issue"].as_object().unwrap().keys().collect::<Vec<_>>(),
-            ["updatedAt"]
-        );
+        assert_eq!(s["issue"].as_object().unwrap().keys().collect::<Vec<_>>(), ["updatedAt"]);
     }
 
     #[test]
     fn issue_show() {
         let v = json_of("issue show ENG-142 --signed-urls 300 --json");
         let i = &v["issue"];
-        assert_eq!(
-            i["title"],
-            "Checkout fails when a coupon code has trailing whitespace"
-        );
+        assert_eq!(i["title"], "Checkout fails when a coupon code has trailing whitespace");
         assert_eq!(i["parent"]["identifier"], "ENG-120");
         assert_eq!(i["children"].as_array().unwrap().len(), 2);
         assert_eq!(i["children"][0]["state"]["type"], "started");
         assert_eq!(i["relations"][0]["relatedIssue"]["identifier"], "ENG-131");
-        assert_eq!(
-            i["attachments"][0]["url"],
-            "https://github.com/northwind/shop/pull/2841"
-        );
+        assert_eq!(i["attachments"][0]["url"], "https://github.com/northwind/shop/pull/2841");
         assert_eq!(i["creator"]["name"], "Jonas Berg");
-        assert_eq!(
-            i["branchName"],
-            "maya/eng-142-checkout-fails-when-a-coupon-code-has-trailing-whitespace"
-        );
+        assert_eq!(i["branchName"], "maya/eng-142-checkout-fails-when-a-coupon-code-has-trailing-whitespace");
         assert_eq!(i["comments"].as_array().unwrap().len(), 4);
         assert_eq!(i["comments"][1]["parent"]["id"], i["comments"][0]["id"]);
         assert_eq!(i["comments"][0]["parent"], Value::Null);
-        assert!(
-            i["description"]
-                .as_str()
-                .unwrap()
-                .contains("## Steps to reproduce")
-        );
+        assert!(i["description"].as_str().unwrap().contains("## Steps to reproduce"));
         assert_eq!(i["dueDate"], Value::Null);
     }
 
     #[test]
     fn issue_show_by_alias_uuid_and_comment_count() {
-        let id = json_of("issue show ENG-142 --json")["issue"]["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        let id = json_of("issue show ENG-142 --json")["issue"]["id"].as_str().unwrap().to_string();
+        assert_eq!(json_of(&format!("issue view {id} --json"))["issue"]["identifier"], "ENG-142");
         assert_eq!(
-            json_of(&format!("issue view {id} --json"))["issue"]["identifier"],
-            "ENG-142"
-        );
-        assert_eq!(
-            json_of("issue show ENG-142 --comments=1 --json")["issue"]["comments"]
-                .as_array()
-                .unwrap()
-                .len(),
+            json_of("issue show ENG-142 --comments=1 --json")["issue"]["comments"].as_array().unwrap().len(),
             1
         );
         assert_eq!(go("issue show ENG-142 --comments=x --json").code, 2);
         let unassigned = json_of("issue show ENG-156 --json");
-        assert!(
-            unassigned["issue"]["branchName"]
-                .as_str()
-                .unwrap()
-                .starts_with("unassigned/")
-        );
+        assert!(unassigned["issue"]["branchName"].as_str().unwrap().starts_with("unassigned/"));
     }
 
     #[test]
@@ -1151,10 +978,7 @@ mod tests {
         let out = go("issue show ENG-999 --json");
         assert_eq!(out.code, 1);
         let v: Value = serde_json::from_str(&out.stdout).unwrap();
-        assert_eq!(
-            v["error"],
-            "not found: issue ENG-999 (or this API key cannot see it)"
-        );
+        assert_eq!(v["error"], "not found: issue ENG-999 (or this API key cannot see it)");
         assert_eq!(v["usage"], false);
         assert_eq!(go("comment list ENG-999 --json").code, 1);
     }
@@ -1165,12 +989,7 @@ mod tests {
         assert_eq!(v["shown"], 2);
         assert_eq!(v["truncated"], true);
         assert_eq!(v["items"][0]["user"]["name"], "Aiko Tanaka");
-        assert!(
-            v["items"][0]["url"]
-                .as_str()
-                .unwrap()
-                .contains("ENG-142#comment-")
-        );
+        assert!(v["items"][0]["url"].as_str().unwrap().contains("ENG-142#comment-"));
     }
 
     #[test]
@@ -1233,12 +1052,7 @@ mod tests {
     #[test]
     fn signed_urls() {
         let plain = json_of("issue show ENG-142 --json");
-        assert!(
-            plain["issue"]["description"]
-                .as_str()
-                .unwrap()
-                .contains("checkout-error.png)")
-        );
+        assert!(plain["issue"]["description"].as_str().unwrap().contains("checkout-error.png)"));
         let signed = json_of("issue show ENG-142 --signed-urls 300 --json");
         assert!(
             signed["issue"]["description"]
@@ -1283,10 +1097,7 @@ mod tests {
 
     #[test]
     fn helpers() {
-        assert_eq!(
-            slug("Search ignores accents: \"café\""),
-            "search-ignores-accents-caf"
-        );
+        assert_eq!(slug("Search ignores accents: \"café\""), "search-ignores-accents-caf");
         assert_eq!(priority_label(0), "No priority");
         assert_eq!(priority_label(4), "Low");
         assert_eq!(priority_label(3), "Medium");

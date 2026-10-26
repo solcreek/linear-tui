@@ -34,11 +34,7 @@ impl Describe {
         let global_flags = flag_names(&root["flags"])?;
         let mut table = HashMap::new();
         walk(&root["commands"], &[], &global_flags, &mut table)?;
-        Ok(Self {
-            version,
-            global_flags,
-            table,
-        })
+        Ok(Self { version, global_flags, table })
     }
 
     /// Run `linearctl describe --json` with the given binary.
@@ -48,9 +44,7 @@ impl Describe {
 
     /// Run a prepared command and parse what it prints.
     pub fn from_command(cmd: &mut Command) -> Result<Self, String> {
-        let out = cmd
-            .output()
-            .map_err(|e| format!("cannot run {:?}: {e}", cmd.get_program()))?;
+        let out = cmd.output().map_err(|e| format!("cannot run {:?}: {e}", cmd.get_program()))?;
         if !out.status.success() {
             return Err(format!("{:?} failed: {}", cmd.get_program(), out.status));
         }
@@ -108,10 +102,7 @@ impl Describe {
             let name = rest.split('=').next().unwrap_or_default();
             if !name.is_empty() && !flags.contains(name) {
                 let cmd = std::iter::once("linearctl").chain(path.iter().map(String::as_str));
-                problems.push(format!(
-                    "unknown flag --{name} on '{}'",
-                    cmd.collect::<Vec<_>>().join(" ")
-                ));
+                problems.push(format!("unknown flag --{name} on '{}'", cmd.collect::<Vec<_>>().join(" ")));
             }
         }
         problems
@@ -124,9 +115,7 @@ impl Describe {
         let problems = found
             .iter()
             .flat_map(|(line, text)| {
-                self.check_invocation(text)
-                    .into_iter()
-                    .map(move |p| format!("line {line}: {p}: {text}"))
+                self.check_invocation(text).into_iter().map(move |p| format!("line {line}: {p}: {text}"))
             })
             .collect();
         (found.len(), problems)
@@ -137,10 +126,7 @@ fn flag_names(flags: &Value) -> Result<HashSet<String>, String> {
     let list = flags.as_array().ok_or("describe: flags is not a list")?;
     list.iter()
         .map(|f| {
-            f["name"]
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| "describe: flag without a name".to_string())
+            f["name"].as_str().map(str::to_string).ok_or_else(|| "describe: flag without a name".to_string())
         })
         .collect()
 }
@@ -162,13 +148,7 @@ fn walk(
         for n in names {
             let mut p = path.to_vec();
             p.push(n.to_string());
-            table.insert(
-                p.clone(),
-                Entry {
-                    flags: flags.clone(),
-                    has_children,
-                },
-            );
+            table.insert(p.clone(), Entry { flags: flags.clone(), has_children });
             if has_children {
                 walk(children, &p, &flags, table)?;
             }
@@ -262,10 +242,7 @@ mod tests {
     #[test]
     fn inline_spans_and_fences() {
         let doc = "Run `linearctl issue list --limit 5` now.\n```\nlinearctl describe\n```\n";
-        assert_eq!(
-            texts(doc),
-            ["linearctl issue list --limit 5", "linearctl describe"]
-        );
+        assert_eq!(texts(doc), ["linearctl issue list --limit 5", "linearctl describe"]);
     }
 
     #[test]
@@ -276,14 +253,7 @@ mod tests {
     #[test]
     fn splits_pipelines_and_sequences() {
         let doc = "`echo x | linearctl describe --json` `linearctl describe && linearctl issue list`\n";
-        assert_eq!(
-            texts(doc),
-            [
-                "linearctl describe --json",
-                "linearctl describe",
-                "linearctl issue list"
-            ]
-        );
+        assert_eq!(texts(doc), ["linearctl describe --json", "linearctl describe", "linearctl issue list"]);
     }
 
     #[test]
@@ -308,19 +278,12 @@ mod tests {
 
     #[test]
     fn valid() {
-        assert_eq!(
-            problems("`linearctl issue show ENG-1 --comments=0 --json`"),
-            (1, vec![])
-        );
+        assert_eq!(problems("`linearctl issue show ENG-1 --comments=0 --json`"), (1, vec![]));
     }
 
     #[test]
     fn alias_resolves() {
-        assert!(
-            problems("`linearctl issue view ENG-1 --signed-urls 300`")
-                .1
-                .is_empty()
-        );
+        assert!(problems("`linearctl issue view ENG-1 --signed-urls 300`").1.is_empty());
     }
 
     #[test]
@@ -332,10 +295,7 @@ mod tests {
     fn unknown_flag() {
         let (found, p) = problems("`linearctl issue list --sort priority`");
         assert_eq!(found, 1);
-        assert!(
-            p[0].contains("unknown flag --sort on 'linearctl issue list'"),
-            "{p:?}"
-        );
+        assert!(p[0].contains("unknown flag --sort on 'linearctl issue list'"), "{p:?}");
     }
 
     #[test]
@@ -367,11 +327,7 @@ mod tests {
 
     #[test]
     fn synopsis_brackets() {
-        assert!(
-            problems("`linearctl issue list [--limit N] [--fields F]`")
-                .1
-                .is_empty()
-        );
+        assert!(problems("`linearctl issue list [--limit N] [--fields F]`").1.is_empty());
         assert!(problems("`linearctl issue list [--bogus]`").1[0].contains("--bogus"));
     }
 
@@ -382,11 +338,7 @@ mod tests {
 
     #[test]
     fn ellipsis_is_a_placeholder() {
-        assert!(
-            problems("`linearctl … --json` and `linearctl issue ...`")
-                .1
-                .is_empty()
-        );
+        assert!(problems("`linearctl … --json` and `linearctl issue ...`").1.is_empty());
     }
 
     #[test]
@@ -428,11 +380,7 @@ mod tests {
 
     #[test]
     fn from_command_failures() {
-        assert!(
-            Describe::from_command(&mut Command::new("false"))
-                .unwrap_err()
-                .contains("failed")
-        );
+        assert!(Describe::from_command(&mut Command::new("false")).unwrap_err().contains("failed"));
         let missing = Describe::from_linearctl("/nonexistent/linearctl").unwrap_err();
         assert!(missing.starts_with("cannot run"), "{missing}");
     }

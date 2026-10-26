@@ -73,9 +73,7 @@ pub fn priority_spans(p: i64) -> Vec<Span<'static>> {
     match p {
         1 => vec![Span::styled(
             "!!!",
-            Style::new()
-                .fg(Color::Rgb(0xf2, 0x99, 0x4a))
-                .add_modifier(Modifier::BOLD),
+            Style::new().fg(Color::Rgb(0xf2, 0x99, 0x4a)).add_modifier(Modifier::BOLD),
         )],
         2 => vec![Span::styled("▂▄▆", on)],
         3 => vec![Span::styled("▂▄", on), Span::styled("▆", off)],
@@ -90,10 +88,7 @@ fn label_spans(labels: &[Label]) -> Vec<Span<'static>> {
         if i > 0 {
             v.push(Span::raw("  "));
         }
-        v.push(Span::styled(
-            "●",
-            Style::new().fg(hex(l.color.as_deref()).unwrap_or(Color::Gray)),
-        ));
+        v.push(Span::styled("●", Style::new().fg(hex(l.color.as_deref()).unwrap_or(Color::Gray))));
         v.push(Span::styled(format!(" {}", l.name), Style::new().fg(Color::Gray)));
     }
     v
@@ -151,12 +146,7 @@ pub fn render(app: &mut App, f: &mut Frame) {
 /// A box centred in `area`, at most `w` x `h`.
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
     let (w, h) = (w.min(area.width), h.min(area.height));
-    Rect {
-        x: area.x + (area.width - w) / 2,
-        y: area.y + (area.height - h) / 2,
-        width: w,
-        height: h,
-    }
+    Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
 }
 
 fn render_picker(p: &PickList, f: &mut Frame, area: Rect) {
@@ -191,22 +181,14 @@ fn render_picker(p: &PickList, f: &mut Frame, area: Rect) {
         }
         let mut line = Line::from(spans);
         if n == p.cursor {
-            line = line.style(
-                Style::new()
-                    .bg(Color::Rgb(0x2a, 0x2d, 0x3e))
-                    .add_modifier(Modifier::BOLD),
-            );
+            line = line.style(Style::new().bg(Color::Rgb(0x2a, 0x2d, 0x3e)).add_modifier(Modifier::BOLD));
         }
         lines.push(line);
     }
     let title = format!(" {} ", p.title);
     f.render_widget(Clear, rect);
     f.render_widget(
-        Paragraph::new(lines).block(
-            Block::bordered()
-                .title(title)
-                .border_style(Style::new().fg(ACCENT)),
-        ),
+        Paragraph::new(lines).block(Block::bordered().title(title).border_style(Style::new().fg(ACCENT))),
         rect,
     );
 }
@@ -228,9 +210,7 @@ fn render_confirm(c: &Confirm, f: &mut Frame, area: Rect) {
     let h = u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2);
     let rect = centered(area, w, h);
     f.render_widget(Clear, rect);
-    let block = Block::bordered()
-        .title(format!(" {} ", c.title))
-        .border_style(Style::new().fg(ACCENT));
+    let block = Block::bordered().title(format!(" {} ", c.title)).border_style(Style::new().fg(ACCENT));
     f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
@@ -254,11 +234,7 @@ fn wrap_plain(s: &str, w: usize) -> Vec<String> {
 fn render_form(form: &Form, f: &mut Frame, area: Rect) {
     let label = |name: &str, i: usize| {
         let focused = form.field == i;
-        let style = if focused {
-            Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            dim()
-        };
+        let style = if focused { Style::new().fg(ACCENT).add_modifier(Modifier::BOLD) } else { dim() };
         Span::styled(format!("{} {name:<13}", if focused { "›" } else { " " }), style)
     };
     let value = |v: Option<String>, empty: &str| match v.filter(|v| !v.is_empty()) {
@@ -271,34 +247,23 @@ fn render_form(form: &Form, f: &mut Frame, area: Rect) {
         let v = match *name {
             "Title" => {
                 let cursor = if form.field == i { "▏" } else { "" };
-                Span::styled(
-                    format!("{}{cursor}", form.title),
-                    Style::new().add_modifier(Modifier::BOLD),
-                )
+                Span::styled(format!("{}{cursor}", form.title), Style::new().add_modifier(Modifier::BOLD))
             }
             "Team" => value(Some(form.team.clone()), "pick a team"),
             "Status" => value(form.state.clone(), "the team's default"),
             "Priority" => value(
-                priorities
-                    .get(usize::try_from(form.priority).unwrap_or(0))
-                    .map(|s| (*s).to_string()),
+                priorities.get(usize::try_from(form.priority).unwrap_or(0)).map(|s| (*s).to_string()),
                 "",
             ),
             "Assignee" => value(form.assignee.as_ref().map(|a| a.1.clone()), "unassigned"),
             "Labels" => value(Some(form.labels.join(", ")), "none"),
             "Project" => value(form.project.clone(), "none"),
-            _ => value(
-                form.description.lines().next().map(str::to_string),
-                "enter opens $EDITOR",
-            ),
+            _ => value(form.description.lines().next().map(str::to_string), "enter opens $EDITOR"),
         };
         lines.push(Line::from(vec![label(name, i), v]));
         if *name == "Description" {
             for l in form.description.lines().skip(1).take(6) {
-                lines.push(Line::from(vec![
-                    Span::raw(" ".repeat(15)),
-                    Span::styled(l.to_string(), dim()),
-                ]));
+                lines.push(Line::from(vec![Span::raw(" ".repeat(15)), Span::styled(l.to_string(), dim())]));
             }
         }
     }
@@ -307,29 +272,17 @@ fn render_form(form: &Form, f: &mut Frame, area: Rect) {
         "  tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard",
         dim(),
     )));
-    let rect = centered(
-        area,
-        100,
-        u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2),
-    );
+    let rect = centered(area, 100, u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2));
     f.render_widget(Clear, rect);
-    let block = Block::bordered()
-        .title(" New issue ")
-        .border_style(Style::new().fg(ACCENT));
+    let block = Block::bordered().title(" New issue ").border_style(Style::new().fg(ACCENT));
     f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 fn render_header(app: &App, f: &mut Frame, area: Rect) {
-    let org = app
-        .auth
-        .as_ref()
-        .map_or("Linear", |a| a.organization.name.as_str());
+    let org = app.auth.as_ref().map_or("Linear", |a| a.organization.name.as_str());
     let mut spans = vec![Span::styled(
         format!(" {org} "),
-        Style::new()
-            .fg(Color::White)
-            .bg(ACCENT)
-            .add_modifier(Modifier::BOLD),
+        Style::new().fg(Color::White).bg(ACCENT).add_modifier(Modifier::BOLD),
     )];
     if let Some(q) = &app.search {
         spans.push(Span::raw("  "));
@@ -374,11 +327,7 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
     } else if let Some(n) = &app.notice {
         Line::from(Span::styled(format!(" ✓ {n}"), Style::new().fg(Color::Green)))
     } else if !app.filter.is_empty() {
-        Line::from(vec![
-            slash(),
-            Span::raw(app.filter.clone()),
-            Span::styled("   esc clear", dim()),
-        ])
+        Line::from(vec![slash(), Span::raw(app.filter.clone()), Span::styled("   esc clear", dim())])
     } else {
         let hints = match (app.focus, &app.overlay, &app.form) {
             (_, Some(Overlay::Pick(p)), _) if p.multi => {
@@ -416,27 +365,15 @@ fn render_list(app: &App, f: &mut Frame, area: Rect, narrow: bool) {
     }
     let wide = !narrow && area.width >= 110;
     let table_rows: Vec<Row> = rows.iter().map(|r| list_row(r, app.now, wide)).collect();
-    let mut widths = vec![
-        Constraint::Length(3),
-        Constraint::Length(8),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ];
+    let mut widths =
+        vec![Constraint::Length(3), Constraint::Length(8), Constraint::Length(1), Constraint::Fill(1)];
     if wide {
-        widths.extend([
-            Constraint::Length(2),
-            Constraint::Length(28),
-            Constraint::Length(4),
-        ]);
+        widths.extend([Constraint::Length(2), Constraint::Length(28), Constraint::Length(4)]);
     } else {
         widths.push(Constraint::Length(2));
     }
-    let highlight = Style::new()
-        .bg(Color::Rgb(0x2a, 0x2d, 0x3e))
-        .add_modifier(Modifier::BOLD);
-    let table = Table::new(table_rows, widths)
-        .column_spacing(2)
-        .row_highlight_style(highlight);
+    let highlight = Style::new().bg(Color::Rgb(0x2a, 0x2d, 0x3e)).add_modifier(Modifier::BOLD);
+    let table = Table::new(table_rows, widths).column_spacing(2).row_highlight_style(highlight);
     let mut state = TableState::default().with_selected(Some(app.selected));
     f.render_stateful_widget(table, area, &mut state);
 }
@@ -447,10 +384,7 @@ fn list_row(r: &IssueRow, now: DateTime<Utc>, wide: bool) -> Row<'static> {
         Cell::from(Span::styled(r.identifier.clone(), dim())),
         Cell::from(Line::from(state_span(r.state.as_ref(), false))),
         Cell::from(r.title.clone()),
-        Cell::from(Span::styled(
-            initials(r.assignee.as_ref()),
-            Style::new().fg(Color::Cyan),
-        )),
+        Cell::from(Span::styled(initials(r.assignee.as_ref()), Style::new().fg(Color::Cyan))),
     ];
     if wide {
         cells.push(Cell::from(Line::from(label_spans(&r.labels))));
@@ -551,28 +485,19 @@ pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>, view: &Imag
     out.push(Line::from(meta));
     let mut meta2 = Vec::new();
     if let Some(p) = &row.project {
-        meta2.push(Span::styled(
-            format!("▸ {}", p.name),
-            Style::new().fg(Color::Gray),
-        ));
+        meta2.push(Span::styled(format!("▸ {}", p.name), Style::new().fg(Color::Gray)));
     }
     if let Some(c) = &row.cycle {
         if !meta2.is_empty() {
             meta2.push(sep());
         }
-        meta2.push(Span::styled(
-            format!("Cycle {}", c.number),
-            Style::new().fg(Color::Gray),
-        ));
+        meta2.push(Span::styled(format!("Cycle {}", c.number), Style::new().fg(Color::Gray)));
     }
     if let Some(d) = &i.due_date {
         if !meta2.is_empty() {
             meta2.push(sep());
         }
-        meta2.push(Span::styled(
-            format!("Due {d}"),
-            Style::new().fg(Color::Rgb(0xf2, 0x99, 0x4a)),
-        ));
+        meta2.push(Span::styled(format!("Due {d}"), Style::new().fg(Color::Rgb(0xf2, 0x99, 0x4a))));
     }
     if !row.labels.is_empty() {
         if !meta2.is_empty() {
@@ -596,12 +521,8 @@ pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>, view: &Imag
         None => out.push(Line::from(Span::styled("No description.", dim()))),
     }
     let out = &mut layout.lines;
-    let section = |title: String| {
-        Line::from(Span::styled(
-            title,
-            Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ))
-    };
+    let section =
+        |title: String| Line::from(Span::styled(title, Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)));
     if !i.children.is_empty() {
         out.push(Line::raw(""));
         out.push(section(format!("Sub-issues ({})", i.children.len())));
@@ -627,10 +548,7 @@ pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>, view: &Imag
         out.push(Line::raw(""));
         out.push(section(format!("Attachments ({})", i.attachments.len())));
         for a in &i.attachments {
-            out.push(Line::from(vec![
-                Span::styled("↗ ", dim()),
-                Span::raw(a.title.clone()),
-            ]));
+            out.push(Line::from(vec![Span::styled("↗ ", dim()), Span::raw(a.title.clone())]));
         }
     }
     let threads = i.threads();
@@ -646,10 +564,7 @@ pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>, view: &Imag
         if reply {
             head.push(Span::styled("↪ ", dim()));
         }
-        head.push(Span::styled(
-            name,
-            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        ));
+        head.push(Span::styled(name, Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
         head.push(Span::styled(format!(" · {}", ago(&c.created_at, now)), dim()));
         layout.lines.push(Line::from(head));
         let pad = if reply { 6 } else { 2 };
@@ -683,30 +598,16 @@ fn viewer<'a>(app: &'a App, font: FontSize, max_rows: u16) -> impl Fn(&str, u16)
 }
 
 fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
-    let block = if beside {
-        Block::new().borders(Borders::LEFT).border_style(dim())
-    } else {
-        Block::new()
-    };
+    let block = if beside { Block::new().borders(Borders::LEFT).border_style(dim()) } else { Block::new() };
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let inner = Rect {
-        x: inner.x + 1,
-        width: inner.width.saturating_sub(1),
-        ..inner
-    };
-    let font = app
-        .picker
-        .as_ref()
-        .map_or(FontSize::new(10, 20), Picker::font_size);
+    let inner = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
+    let font = app.picker.as_ref().map_or(FontSize::new(10, 20), Picker::font_size);
     let max_rows = (inner.height * 3 / 5).clamp(1, 30);
     let Some(d) = app.detail.as_ref() else { return };
     let layout = match (&d.issue, &d.error) {
         (_, Some(e)) => DetailLayout {
-            lines: vec![Line::from(Span::styled(
-                format!("{}: {e}", d.id),
-                Style::new().fg(Color::Red),
-            ))],
+            lines: vec![Line::from(Span::styled(format!("{}: {e}", d.id), Style::new().fg(Color::Red)))],
             images: Vec::new(),
         },
         (Some(i), None) => detail_lines(i, inner.width, app.now, &viewer(app, font, max_rows)),
@@ -715,9 +616,7 @@ fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
             images: Vec::new(),
         },
     };
-    let max = u16::try_from(layout.lines.len())
-        .unwrap_or(u16::MAX)
-        .saturating_sub(inner.height);
+    let max = u16::try_from(layout.lines.len()).unwrap_or(u16::MAX).saturating_sub(inner.height);
     let Some(d) = app.detail.as_mut() else { return };
     d.scroll = d.scroll.min(max);
     let scroll = usize::from(d.scroll);
@@ -739,9 +638,7 @@ fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
             width: p.cols.min(inner.width.saturating_sub(p.x)),
             height: p.rows,
         };
-        let proto = pic
-            .proto
-            .get_or_insert_with(|| picker.new_resize_protocol(pic.image.clone()));
+        let proto = pic.proto.get_or_insert_with(|| picker.new_resize_protocol(pic.image.clone()));
         f.render_stateful_widget(
             StatefulImage::default().resize(Resize::Fit(Some(FilterType::Triangle))),
             rect,
@@ -774,10 +671,9 @@ fn render_help(f: &mut Frame, area: Rect) {
     // Two columns, so it fits a 24-line terminal.
     let half = keys.len().div_ceil(2);
     let cell = |k: Option<&(&str, &str)>| match k {
-        Some((k, what)) => vec![
-            Span::styled(format!(" {k:<14}"), Style::new().fg(ACCENT)),
-            Span::raw(format!("{what:<30}")),
-        ],
+        Some((k, what)) => {
+            vec![Span::styled(format!(" {k:<14}"), Style::new().fg(ACCENT)), Span::raw(format!("{what:<30}"))]
+        }
         None => Vec::new(),
     };
     let lines: Vec<Line> = (0..half)
@@ -789,10 +685,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         .collect();
     let rect = centered(area, 92, u16::try_from(half).unwrap_or(0) + 2);
     f.render_widget(Clear, rect);
-    f.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title(" Keys ").border_style(dim())),
-        rect,
-    );
+    f.render_widget(Paragraph::new(lines).block(Block::bordered().title(" Keys ").border_style(dim())), rect);
 }
 
 #[cfg(test)]
@@ -811,10 +704,7 @@ mod tests {
     fn feed(app: &mut App, fx: Vec<Effect>) {
         for f in fx {
             let Effect::Run(req) = f else { continue };
-            let msg = req.run(&fake::InProcess {
-                now: now(),
-                state: None,
-            });
+            let msg = req.run(&fake::InProcess { now: now(), state: None });
             let more = app.update(msg);
             feed(app, more);
         }
@@ -840,11 +730,7 @@ mod tests {
         let buf = t.backend().buffer().clone();
         (0..h)
             .map(|y| {
-                (0..w)
-                    .map(|x| buf[(x, y)].symbol().to_string())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_string()
+                (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()
             })
             .collect()
     }
@@ -860,10 +746,7 @@ mod tests {
         assert!(s.contains(" Northwind "), "{s}");
         assert!(s.contains("1 My issues  2 Active  3 Triage  4 Recent"));
         assert!(s.contains("12 issues"));
-        assert!(
-            s.contains("!!!  ENG-158   ○  Customers in Brazil can't pay with Pix"),
-            "{s}"
-        );
+        assert!(s.contains("!!!  ENG-158   ○  Customers in Brazil can't pay with Pix"), "{s}");
         assert!(s.contains("● Bug  ● Customer reported"));
         assert!(s.contains("12m"), "relative update time: {s}");
         assert!(s.contains("j/k move · enter open"));
@@ -882,10 +765,7 @@ mod tests {
         let mut app = app_on('1');
         press(&mut app, KeyCode::Enter);
         let s = screen(&draw(&mut app, 160, 48));
-        assert!(
-            s.contains("ENG-142  Checkout fails when a coupon code has trailing whitespace"),
-            "{s}"
-        );
+        assert!(s.contains("ENG-142  Checkout fails when a coupon code has trailing whitespace"), "{s}");
         assert!(s.contains("◔ In Progress  ·  !!! Urgent  ·  Maya Patel  ·  2 pt"));
         assert!(s.contains("▸ Checkout v2  ·  Cycle 24"));
         assert!(s.contains("↑ ENG-120 Checkout v2 rollout plan"));
@@ -975,9 +855,7 @@ mod tests {
 
     fn demo_image() -> Box<image::DynamicImage> {
         use crate::images::Source;
-        let bytes = crate::images::Demo
-            .fetch("https://uploads.linear.app/demo/checkout-error.png")
-            .unwrap();
+        let bytes = crate::images::Demo.fetch("https://uploads.linear.app/demo/checkout-error.png").unwrap();
         Box::new(crate::images::decode(&bytes).unwrap())
     }
 
@@ -998,10 +876,7 @@ mod tests {
         let mut app = detail_with_image(true);
         let s = screen(&draw(&mut app, 160, 60));
         assert!(s.contains("□ checkout-error.png  loading…"), "{s}");
-        app.update(Msg::Image {
-            url: DEMO_URL.into(),
-            result: Err("HTTP 500".into()),
-        });
+        app.update(Msg::Image { url: DEMO_URL.into(), result: Err("HTTP 500".into()) });
         assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  not shown: HTTP 500"));
         app.update(Msg::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)));
         assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  images off (i)"));
@@ -1010,18 +885,13 @@ mod tests {
     #[test]
     fn a_loaded_image_is_drawn_in_its_box() {
         let mut app = detail_with_image(true);
-        app.update(Msg::Image {
-            url: DEMO_URL.into(),
-            result: Ok(demo_image()),
-        });
+        app.update(Msg::Image { url: DEMO_URL.into(), result: Ok(demo_image()) });
         let mut t = Terminal::new(TestBackend::new(160, 40)).unwrap();
         // Rows of the detail pane mostly painted with a background colour.
         let mut painted = |app: &mut App| -> Vec<u16> {
             t.draw(|f| render(app, f)).unwrap();
             let buf = t.backend().buffer();
-            (0..40)
-                .filter(|&y| (73..160).filter(|&x| buf[(x, y)].bg != Color::Reset).count() > 40)
-                .collect()
+            (0..40).filter(|&y| (73..160).filter(|&x| buf[(x, y)].bg != Color::Reset).count() > 40).collect()
         };
         app.detail.as_mut().unwrap().scroll = 10;
         let rows = painted(&mut app);
@@ -1031,10 +901,7 @@ mod tests {
         // One more line down and the top of the box is off screen: not drawn.
         let top_line = rows[0] - 1 + 10;
         app.detail.as_mut().unwrap().scroll = top_line + 1;
-        assert!(
-            painted(&mut app).is_empty(),
-            "partly visible images are not drawn"
-        );
+        assert!(painted(&mut app).is_empty(), "partly visible images are not drawn");
         app.detail.as_mut().unwrap().scroll = top_line;
         assert_eq!(painted(&mut app).len(), 19);
     }
@@ -1042,10 +909,7 @@ mod tests {
     #[test]
     fn without_a_picker_rows_are_reserved_but_nothing_drawn() {
         let mut app = detail_with_image(false);
-        app.update(Msg::Image {
-            url: DEMO_URL.into(),
-            result: Ok(demo_image()),
-        });
+        app.update(Msg::Image { url: DEMO_URL.into(), result: Ok(demo_image()) });
         let s = screen(&draw(&mut app, 160, 60));
         assert!(s.contains("□ checkout-error.png"));
         assert!(!s.contains('▀'));
@@ -1054,36 +918,15 @@ mod tests {
     #[test]
     fn image_views() {
         let mut app = detail_with_image(false);
-        app.update(Msg::Image {
-            url: DEMO_URL.into(),
-            result: Ok(demo_image()),
-        });
+        app.update(Msg::Image { url: DEMO_URL.into(), result: Ok(demo_image()) });
         let font = FontSize::new(10, 20);
         let v = viewer(&app, font, 30);
-        assert_eq!(
-            v(DEMO_URL, 100),
-            ImageView::Box { cols: 59, rows: 19 },
-            "natural size"
-        );
-        assert_eq!(
-            v(DEMO_URL, 30),
-            ImageView::Box { cols: 30, rows: 10 },
-            "shrunk to the width"
-        );
+        assert_eq!(v(DEMO_URL, 100), ImageView::Box { cols: 59, rows: 19 }, "natural size");
+        assert_eq!(v(DEMO_URL, 30), ImageView::Box { cols: 30, rows: 10 }, "shrunk to the width");
         let short = viewer(&app, font, 5);
-        assert_eq!(
-            short(DEMO_URL, 100),
-            ImageView::Box { cols: 16, rows: 5 },
-            "shrunk to the height"
-        );
-        assert_eq!(
-            v("https://example.com/x.png", 100),
-            ImageView::Note("external image, not loaded".into())
-        );
-        assert_eq!(
-            v("https://uploads.linear.app/other", 100),
-            ImageView::Note("loading…".into())
-        );
+        assert_eq!(short(DEMO_URL, 100), ImageView::Box { cols: 16, rows: 5 }, "shrunk to the height");
+        assert_eq!(v("https://example.com/x.png", 100), ImageView::Note("external image, not loaded".into()));
+        assert_eq!(v("https://uploads.linear.app/other", 100), ImageView::Note("loading…".into()));
     }
 
     #[test]
@@ -1101,15 +944,9 @@ mod tests {
         let xs: Vec<(u16, &str)> = layout.images.iter().map(|p| (p.x, p.path.as_str())).collect();
         assert_eq!(xs, [(2, "/p/a"), (2, "/p/b")]);
         assert!(layout.images.iter().all(|p| p.rows == 3 && p.cols == 4));
-        let text: Vec<String> = layout
-            .lines
-            .iter()
-            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
-            .collect();
-        assert!(
-            text.iter().any(|l| l.ends_with("□ c")),
-            "a box for a non-upload is not placed: {text:?}"
-        );
+        let text: Vec<String> =
+            layout.lines.iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect()).collect();
+        assert!(text.iter().any(|l| l.ends_with("□ c")), "a box for a non-upload is not placed: {text:?}");
     }
 
     #[test]
@@ -1231,26 +1068,14 @@ mod tests {
         ] {
             assert_eq!(state_icon(k), g);
         }
-        let s = |kind: &str| State {
-            name: String::new(),
-            kind: kind.into(),
-            color: None,
-        };
+        let s = |kind: &str| State { name: String::new(), kind: kind.into(), color: None };
         assert_eq!(state_color(&s("triage")), Color::Rgb(0xfc, 0x78, 0x40));
         assert_eq!(state_color(&s("started")), Color::Yellow);
         assert_eq!(state_color(&s("completed")), ACCENT);
         assert_eq!(state_color(&s("backlog")), Color::Gray);
         assert_eq!(state_span(None, true)[0].content, " ");
-        let text = |p| {
-            priority_spans(p)
-                .iter()
-                .map(|s| s.content.to_string())
-                .collect::<String>()
-        };
-        assert_eq!(
-            [text(0), text(1), text(2), text(3), text(4)],
-            ["───", "!!!", "▂▄▆", "▂▄▆", "▂▄▆"]
-        );
+        let text = |p| priority_spans(p).iter().map(|s| s.content.to_string()).collect::<String>();
+        assert_eq!([text(0), text(1), text(2), text(3), text(4)], ["───", "!!!", "▂▄▆", "▂▄▆", "▂▄▆"]);
         assert_eq!(initials(None), "");
     }
 

@@ -3,10 +3,7 @@
 use std::process::Command;
 
 fn fake(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_fake-linearctl"))
-        .args(args)
-        .output()
-        .unwrap()
+    Command::new(env!("CARGO_BIN_EXE_fake-linearctl")).args(args).output().unwrap()
 }
 
 #[test]

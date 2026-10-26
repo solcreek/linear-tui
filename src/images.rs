@@ -37,12 +37,7 @@ pub fn upload_path(url: &str) -> Option<&str> {
 /// The cache key for an upload URL: SHA-256 of its path, in hex.
 pub fn cache_key(url: &str) -> Option<String> {
     let path = upload_path(url)?;
-    Some(
-        Sha256::digest(path.as_bytes())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
+    Some(Sha256::digest(path.as_bytes()).iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,11 +85,7 @@ impl Default for Http {
 
 impl Source for Http {
     fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
-        let mut resp = self
-            .agent
-            .get(url)
-            .call()
-            .map_err(|e| FetchError::Network(e.to_string()))?;
+        let mut resp = self.agent.get(url).call().map_err(|e| FetchError::Network(e.to_string()))?;
         match resp.status().as_u16() {
             200 => {}
             401 | 403 => return Err(FetchError::Expired),
@@ -172,11 +163,7 @@ impl DiskCache {
             .filter_map(Result::ok)
             .filter_map(|e| {
                 let m = e.metadata().ok()?;
-                if m.is_file() {
-                    Some((m.modified().ok()?, m.len(), e.path()))
-                } else {
-                    None
-                }
+                if m.is_file() { Some((m.modified().ok()?, m.len(), e.path())) } else { None }
             })
             .collect();
         let mut total: u64 = files.iter().map(|f| f.1).sum();
@@ -277,9 +264,8 @@ impl Loader {
         runner.cwd = Some(stage.clone());
         let path = upload_path(url).expect("checked by cache_key");
         let unsigned = format!("{}{}", &UPLOADS[..UPLOADS.len() - 1], path);
-        let argv: Vec<String> = ["file", "download", &unsigned, "--output", key, "--yes", "--json"]
-            .map(String::from)
-            .to_vec();
+        let argv: Vec<String> =
+            ["file", "download", &unsigned, "--output", key, "--yes", "--json"].map(String::from).to_vec();
         let result = runner.run(&argv).map_err(|f| f.message());
         let file = stage.join(key);
         let bytes = result.and_then(|_| fs::read(&file).map_err(|e| e.to_string()));
@@ -291,25 +277,12 @@ impl Loader {
 /// The default cache directory: `$XDG_CACHE_HOME/linear-tui/<org>/images`,
 /// else `~/Library/Caches/...` on macOS or `~/.cache/...`.
 pub fn cache_dir(org: &str) -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            let home = PathBuf::from(std::env::var_os("HOME")?);
-            Some(if cfg!(target_os = "macos") {
-                home.join("Library/Caches")
-            } else {
-                home.join(".cache")
-            })
-        })?;
-    let org: String = org
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-        .collect();
-    Some(
-        base.join("linear-tui")
-            .join(if org.is_empty() { "default".into() } else { org })
-            .join("images"),
-    )
+    let base = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        Some(if cfg!(target_os = "macos") { home.join("Library/Caches") } else { home.join(".cache") })
+    })?;
+    let org: String = org.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    Some(base.join("linear-tui").join(if org.is_empty() { "default".into() } else { org }).join("images"))
 }
 
 #[cfg(test)]
@@ -327,10 +300,7 @@ mod tests {
 
     #[test]
     fn upload_paths() {
-        assert_eq!(
-            upload_path("https://uploads.linear.app/a/b/c?signature=x"),
-            Some("/a/b/c")
-        );
+        assert_eq!(upload_path("https://uploads.linear.app/a/b/c?signature=x"), Some("/a/b/c"));
         assert_eq!(upload_path("https://uploads.linear.app/a/b#frag"), Some("/a/b"));
         assert_eq!(upload_path("https://uploads.linear.app/"), None);
         assert_eq!(upload_path("https://uploads.linear.app/../x"), None);
@@ -342,10 +312,7 @@ mod tests {
     #[test]
     fn cache_keys_ignore_the_signature() {
         let a = cache_key("https://uploads.linear.app/o/f?signature=1").unwrap();
-        assert_eq!(
-            a,
-            cache_key("https://uploads.linear.app/o/f?signature=2").unwrap()
-        );
+        assert_eq!(a, cache_key("https://uploads.linear.app/o/f?signature=2").unwrap());
         assert_ne!(a, cache_key("https://uploads.linear.app/o/g").unwrap());
         assert_eq!(a.len(), 64);
         assert_eq!(cache_key("https://example.com/x"), None);
@@ -355,21 +322,14 @@ mod tests {
     fn decodes_the_demo_image() {
         let img = decode(&Demo.fetch(DEMO_URL).unwrap()).unwrap();
         assert_eq!((img.width(), img.height()), (588, 376));
-        assert_eq!(
-            Demo.fetch("https://uploads.linear.app/demo/nope.png"),
-            Err(FetchError::Status(404))
-        );
+        assert_eq!(Demo.fetch("https://uploads.linear.app/demo/nope.png"), Err(FetchError::Status(404)));
     }
 
     #[test]
     fn rejects_what_is_not_a_supported_image() {
         assert_eq!(decode(b"hello").unwrap_err(), "not an image");
         // A TIFF header: a real image format, but not one we decode.
-        assert!(
-            decode(b"II*\0\x08\0\0\0")
-                .unwrap_err()
-                .starts_with("unsupported image format")
-        );
+        assert!(decode(b"II*\0\x08\0\0\0").unwrap_err().starts_with("unsupported image format"));
         // A PNG signature with nothing after it.
         assert!(decode(b"\x89PNG\r\n\x1a\n").is_err());
     }
@@ -378,8 +338,7 @@ mod tests {
     fn shrinks_big_images() {
         let big = DynamicImage::new_rgb8(3200, 1000);
         let mut png = Vec::new();
-        big.write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
-            .unwrap();
+        big.write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png).unwrap();
         let img = decode(&png).unwrap();
         assert_eq!((img.width(), img.height()), (1600, 500));
     }
@@ -403,10 +362,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-            assert_eq!(
-                fs::metadata(dir.join("a")).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
+            assert_eq!(fs::metadata(dir.join("a")).unwrap().permissions().mode() & 0o777, 0o600);
         }
         fs::remove_dir_all(&dir).unwrap();
         // A cache that cannot be created is silently skipped.
@@ -427,11 +383,7 @@ mod tests {
     }
 
     fn loader(answers: Vec<Result<Vec<u8>, FetchError>>, cache: Option<DiskCache>) -> Loader {
-        Loader {
-            source: Box::new(Scripted(Mutex::new(answers))),
-            cache,
-            fallback: None,
-        }
+        Loader { source: Box::new(Scripted(Mutex::new(answers))), cache, fallback: None }
     }
 
     #[test]
@@ -441,10 +393,7 @@ mod tests {
         let l = loader(vec![Ok(png)], Some(DiskCache::new(dir.clone(), 1 << 20)));
         assert!(l.load(DEMO_URL).is_ok());
         // The script is empty now: a second fetch would panic.
-        assert!(
-            l.load("https://uploads.linear.app/demo/checkout-error.png?signature=other")
-                .is_ok()
-        );
+        assert!(l.load("https://uploads.linear.app/demo/checkout-error.png?signature=other").is_ok());
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -461,41 +410,23 @@ mod tests {
     #[test]
     fn loader_errors() {
         assert_eq!(
-            loader(vec![], None)
-                .load("https://example.com/x.png")
-                .unwrap_err(),
+            loader(vec![], None).load("https://example.com/x.png").unwrap_err(),
             "not a Linear upload"
         );
+        assert_eq!(loader(vec![Err(FetchError::Status(500))], None).load(DEMO_URL).unwrap_err(), "HTTP 500");
         assert_eq!(
-            loader(vec![Err(FetchError::Status(500))], None)
-                .load(DEMO_URL)
-                .unwrap_err(),
-            "HTTP 500"
-        );
-        assert_eq!(
-            loader(vec![Err(FetchError::TooLarge)], None)
-                .load(DEMO_URL)
-                .unwrap_err(),
+            loader(vec![Err(FetchError::TooLarge)], None).load(DEMO_URL).unwrap_err(),
             "larger than 20 MB"
         );
         assert_eq!(
-            loader(vec![Err(FetchError::Network("reset".into()))], None)
-                .load(DEMO_URL)
-                .unwrap_err(),
+            loader(vec![Err(FetchError::Network("reset".into()))], None).load(DEMO_URL).unwrap_err(),
             "reset"
         );
         assert_eq!(
-            loader(vec![Err(FetchError::Expired)], None)
-                .load(DEMO_URL)
-                .unwrap_err(),
+            loader(vec![Err(FetchError::Expired)], None).load(DEMO_URL).unwrap_err(),
             "the image link expired"
         );
-        assert_eq!(
-            loader(vec![Ok(b"text".to_vec())], None)
-                .load(DEMO_URL)
-                .unwrap_err(),
-            "not an image"
-        );
+        assert_eq!(loader(vec![Ok(b"text".to_vec())], None).load(DEMO_URL).unwrap_err(), "not an image");
     }
 
     #[test]

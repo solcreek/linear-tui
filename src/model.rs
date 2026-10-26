@@ -18,12 +18,7 @@ pub struct Page<T> {
 
 impl<T> Default for Page<T> {
     fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            shown: 0,
-            truncated: false,
-            next_cursor: None,
-        }
+        Self { items: Vec::new(), shown: 0, truncated: false, next_cursor: None }
     }
 }
 
@@ -170,19 +165,13 @@ impl IssueDetail {
     /// A reply whose root is missing (not loaded) is shown as a root.
     pub fn threads(&self) -> Vec<(&Comment, bool)> {
         fn root_of<'a>(c: &'a Comment, ids: &[&str]) -> Option<&'a str> {
-            c.parent
-                .as_ref()
-                .map(|p| p.id.as_str())
-                .filter(|p| ids.contains(p))
+            c.parent.as_ref().map(|p| p.id.as_str()).filter(|p| ids.contains(p))
         }
         let ids: Vec<&str> = self.comments.iter().map(|c| c.id.as_str()).collect();
         let mut out = Vec::new();
         for root in self.comments.iter().filter(|c| root_of(c, &ids).is_none()) {
             out.push((root, false));
-            let replies = self
-                .comments
-                .iter()
-                .filter(|c| root_of(c, &ids) == Some(root.id.as_str()));
+            let replies = self.comments.iter().filter(|c| root_of(c, &ids) == Some(root.id.as_str()));
             out.extend(replies.map(|c| (c, true)));
         }
         out
@@ -329,13 +318,7 @@ mod tests {
             "nextCursor":null,"shown":1,"total":null,"truncated":false}"#;
         let p: Page<IssueRow> = serde_json::from_str(json).unwrap();
         assert_eq!(p.items[0].state.as_ref().unwrap().color, None);
-        assert_eq!(
-            p.items[0].labels[0],
-            Label {
-                name: "Improvement".into(),
-                color: None
-            }
-        );
+        assert_eq!(p.items[0].labels[0], Label { name: "Improvement".into(), color: None });
         assert!(p.items[0].assignee.is_none());
     }
 
@@ -344,30 +327,17 @@ mod tests {
         let s: ShowResult = serde_json::from_str(&fake_json("issue show ENG-142 --json")).unwrap();
         let i = &s.issue;
         assert_eq!(i.row.identifier, "ENG-142");
-        assert!(
-            i.description
-                .as_deref()
-                .unwrap()
-                .starts_with("Customers who paste")
-        );
+        assert!(i.description.as_deref().unwrap().starts_with("Customers who paste"));
         assert_eq!(i.parent.as_ref().unwrap().identifier, "ENG-120");
         assert_eq!(i.children.len(), 2);
         assert_eq!(i.relations[0].related_issue.identifier, "ENG-131");
         assert_eq!(i.attachments.len(), 1);
         assert_eq!(i.estimate, Some(2.0));
-        let t: Vec<(&str, bool)> = i
-            .threads()
-            .iter()
-            .map(|(c, reply)| (c.user.as_ref().unwrap().name.as_str(), *reply))
-            .collect();
+        let t: Vec<(&str, bool)> =
+            i.threads().iter().map(|(c, reply)| (c.user.as_ref().unwrap().name.as_str(), *reply)).collect();
         assert_eq!(
             t,
-            [
-                ("Aiko Tanaka", false),
-                ("Maya Patel", true),
-                ("Daniel Okafor", false),
-                ("Maya Patel", false)
-            ]
+            [("Aiko Tanaka", false), ("Maya Patel", true), ("Daniel Okafor", false), ("Maya Patel", false)]
         );
     }
 
@@ -426,33 +396,14 @@ mod tests {
         );
         assert_eq!(
             ev[2],
-            WatchEvent::Ready {
-                mode: "subscription".into(),
-                since: "2026-10-26T16:15:55Z".into()
-            }
+            WatchEvent::Ready { mode: "subscription".into(), since: "2026-10-26T16:15:55Z".into() }
         );
         assert_eq!(
             ev[3],
-            WatchEvent::Heartbeat {
-                at: "2026-10-26T16:16:01Z".into(),
-                mode: "subscription".into()
-            }
+            WatchEvent::Heartbeat { at: "2026-10-26T16:16:01Z".into(), mode: "subscription".into() }
         );
-        assert_eq!(
-            ev[4],
-            WatchEvent::Gap {
-                reason: "reconnect".into(),
-                mode: "subscription".into()
-            }
-        );
-        assert_eq!(
-            ev[5],
-            WatchEvent::Remove {
-                id: "x".into(),
-                identifier: None,
-                reason: "deleted".into()
-            }
-        );
+        assert_eq!(ev[4], WatchEvent::Gap { reason: "reconnect".into(), mode: "subscription".into() });
+        assert_eq!(ev[5], WatchEvent::Remove { id: "x".into(), identifier: None, reason: "deleted".into() });
         assert_eq!(ev[6], WatchEvent::Other);
         // The last line of a failed watch has no event.
         assert!(serde_json::from_str::<WatchEvent>(r#"{"error":"rate limited"}"#).is_err());
@@ -460,10 +411,7 @@ mod tests {
 
     #[test]
     fn initials() {
-        let u = |n: &str| User {
-            name: n.into(),
-            email: String::new(),
-        };
+        let u = |n: &str| User { name: n.into(), email: String::new() };
         assert_eq!(u("maya").initials(), "M");
         assert_eq!(u("Ana María de la Cruz").initials(), "AM");
         assert_eq!(u("").initials(), "");

@@ -82,12 +82,7 @@ fn parse(args: &[String]) -> Result<Option<Options>, String> {
         }
     }
     let program = program.unwrap_or_else(|| "linearctl".into());
-    Ok(Some(Options {
-        program,
-        demo,
-        images,
-        cell,
-    }))
+    Ok(Some(Options { program, demo, images, cell }))
 }
 
 /// `--cell-size WxH`, both above zero.
@@ -129,11 +124,7 @@ fn check(d: &Describe) -> Result<(), String> {
     if problems.is_empty() {
         Ok(())
     } else {
-        Err(format!(
-            "linearctl {} lacks what linear-tui needs:\n  {}",
-            d.version,
-            problems.join("\n  ")
-        ))
+        Err(format!("linearctl {} lacks what linear-tui needs:\n  {}", d.version, problems.join("\n  ")))
     }
 }
 
@@ -180,16 +171,8 @@ fn spawn(
             }
             Effect::Edit { purpose, text } => edits.push((purpose, text)),
             Effect::Open(url) => {
-                let opener = if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                };
-                let _ = Command::new(opener)
-                    .arg(url)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn();
+                let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                let _ = Command::new(opener).arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
             }
         }
     }
@@ -219,11 +202,7 @@ fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
 fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<()> {
     let (tx, rx) = mpsc::channel();
     let loader = Loader {
-        source: if opts.demo {
-            Box::new(images::Demo)
-        } else {
-            Box::new(images::Http::new())
-        },
+        source: if opts.demo { Box::new(images::Demo) } else { Box::new(images::Http::new()) },
         // One cache for every workspace: keys are upload paths, which hold
         // the organization's id.
         cache: (!opts.demo)
@@ -264,15 +243,7 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
             let edited = linear_tui::editor::edit(&text);
             terminal = ratatui::init();
             terminal.clear()?;
-            edits.extend(spawn(
-                runner,
-                &tx,
-                &image_jobs,
-                app.update(Msg::Edited {
-                    purpose,
-                    text: edited,
-                }),
-            ));
+            edits.extend(spawn(runner, &tx, &image_jobs, app.update(Msg::Edited { purpose, text: edited })));
         }
         if app.quit {
             break Ok(());

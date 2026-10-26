@@ -118,11 +118,7 @@ impl Mode {
 
 /// A write's argv in the other mode: the same command, previewed or applied.
 pub fn with_mode(argv: &[String], mode: Mode) -> Vec<String> {
-    let mut a: Vec<String> = argv
-        .iter()
-        .filter(|w| *w != "--dry-run" && *w != "--yes")
-        .cloned()
-        .collect();
+    let mut a: Vec<String> = argv.iter().filter(|w| *w != "--dry-run" && *w != "--yes").cloned().collect();
     let at = a.iter().position(|w| w == "--json").unwrap_or(a.len());
     a.insert(at, mode.flag().into());
     a
@@ -173,10 +169,7 @@ pub enum Failure {
     /// Exit 7 (linearctl 0.2.0): the issue changed since `--if-updated-at`.
     Conflict(String),
     /// Exit 6: the budget is spent until `retry_at` (RFC 3339).
-    RateLimited {
-        message: String,
-        retry_at: Option<String>,
-    },
+    RateLimited { message: String, retry_at: Option<String> },
     /// Any other exit, e.g. a crash.
     Crashed { code: Option<i32>, stderr: String },
     /// linearctl could not be started.
@@ -195,20 +188,11 @@ impl Failure {
                 m.clone()
             }
             Self::Usage(m) => format!("internal error (bad linearctl invocation): {m}"),
-            Self::RateLimited {
-                message,
-                retry_at: Some(t),
-            } => format!("{message}; retry after {t}"),
-            Self::RateLimited {
-                message,
-                retry_at: None,
-            } => message.clone(),
+            Self::RateLimited { message, retry_at: Some(t) } => format!("{message}; retry after {t}"),
+            Self::RateLimited { message, retry_at: None } => message.clone(),
             Self::Crashed { code, stderr } => {
                 let code = code.map_or("a signal".to_string(), |c| format!("exit {c}"));
-                format!(
-                    "linearctl failed ({code}): {}",
-                    stderr.lines().last().unwrap_or("").trim()
-                )
+                format!("linearctl failed ({code}): {}", stderr.lines().last().unwrap_or("").trim())
             }
             Self::Spawn(m) => format!("cannot run linearctl: {m}"),
             Self::Timeout(d) => format!("linearctl gave no answer in {} s", d.as_secs()),
@@ -337,10 +321,7 @@ pub fn outcome(code: Option<i32>, stdout: &[u8], stderr: &str) -> Result<Value, 
             serde_json::from_value(v).ok()
         });
         let Some(doc) = doc else {
-            return Err(Failure::Crashed {
-                code,
-                stderr: crate::sanitize::clean(stderr),
-            });
+            return Err(Failure::Crashed { code, stderr: crate::sanitize::clean(stderr) });
         };
         Err(match code {
             Some(1) => Failure::Failed(doc.error),
@@ -349,14 +330,8 @@ pub fn outcome(code: Option<i32>, stdout: &[u8], stderr: &str) -> Result<Value, 
             Some(4) => Failure::Busy(doc.error),
             Some(5) => Failure::Auth(doc.error),
             Some(7) => Failure::Conflict(doc.error),
-            Some(6) => Failure::RateLimited {
-                message: doc.error,
-                retry_at: doc.retry_at,
-            },
-            _ => Failure::Crashed {
-                code,
-                stderr: doc.error,
-            },
+            Some(6) => Failure::RateLimited { message: doc.error, retry_at: doc.retry_at },
+            _ => Failure::Crashed { code, stderr: doc.error },
         })
     }
 }
@@ -378,16 +353,8 @@ mod tests {
 
     #[test]
     fn list_argv_is_valid_linearctl() {
-        let view: Vec<String> = [
-            "--assignee",
-            "me",
-            "--state-type",
-            "started",
-            "--sort",
-            "priority",
-        ]
-        .map(String::from)
-        .to_vec();
+        let view: Vec<String> =
+            ["--assignee", "me", "--state-type", "started", "--sort", "priority"].map(String::from).to_vec();
         let a = list_argv(&view, 50, None);
         assert_valid(&a);
         assert_eq!(a[..4], ["issue", "list", "--assignee", "me"]);
@@ -419,41 +386,22 @@ mod tests {
 
     #[test]
     fn lookup_argvs_are_valid_linearctl() {
-        for what in [
-            Lookup::Teams,
-            Lookup::States,
-            Lookup::Labels,
-            Lookup::Users,
-            Lookup::Projects,
-        ] {
+        for what in [Lookup::Teams, Lookup::States, Lookup::Labels, Lookup::Users, Lookup::Projects] {
             let a = lookup_argv(what, "ENG");
             assert_valid_in_both(&a);
             assert!(a.windows(2).any(|w| w == ["--limit", "0"]));
         }
-        assert!(
-            lookup_argv(Lookup::States, "ENG")
-                .windows(2)
-                .any(|w| w == ["--team", "ENG"])
-        );
+        assert!(lookup_argv(Lookup::States, "ENG").windows(2).any(|w| w == ["--team", "ENG"]));
         assert!(!lookup_argv(Lookup::Users, "ENG").contains(&"--team".to_string()));
     }
 
     #[test]
     fn write_argvs_are_valid_linearctl() {
-        let flags = [
-            ("state", "In Review"),
-            ("priority", "2"),
-            ("add-label", "Bug"),
-            ("assignee", "me"),
-        ];
+        let flags = [("state", "In Review"), ("priority", "2"), ("add-label", "Bug"), ("assignee", "me")];
         let u = update_argv("ENG-142", &flags, Mode::DryRun);
         assert_valid_in_both(&u);
         assert_eq!(u[..5], ["issue", "update", "ENG-142", "--state", "In Review"]);
-        let c = create_argv(
-            &[("team", "ENG"), ("title", "x"), ("label", "Bug")],
-            "id-1",
-            Mode::Yes,
-        );
+        let c = create_argv(&[("team", "ENG"), ("title", "x"), ("label", "Bug")], "id-1", Mode::Yes);
         assert_valid_in_both(&c);
         assert!(c.windows(2).any(|w| w == ["--id", "id-1"]) && c.contains(&"--yes".to_string()));
         assert_valid_in_both(&comment_argv("ENG-142", "id-2", Mode::DryRun));
@@ -469,16 +417,8 @@ mod tests {
 
     #[test]
     fn watch_argv_drops_sort_and_is_valid_in_0_3_0() {
-        let view: Vec<String> = [
-            "--assignee",
-            "me",
-            "--state-type",
-            "started",
-            "--sort",
-            "priority",
-        ]
-        .map(String::from)
-        .to_vec();
+        let view: Vec<String> =
+            ["--assignee", "me", "--state-type", "started", "--sort", "priority"].map(String::from).to_vec();
         let w = watch_argv(&view);
         assert_eq!(w[..5], ["watch", "--assignee", "me", "--state-type", "started"]);
         assert!(!w.contains(&"--sort".to_string()) && !w.contains(&"priority".to_string()));
@@ -509,50 +449,25 @@ mod tests {
     #[test]
     fn messages() {
         let m = |f: Failure| f.message();
-        assert_eq!(
-            m(Failure::Failed("not found: issue X".into())),
-            "not found: issue X"
-        );
+        assert_eq!(m(Failure::Failed("not found: issue X".into())), "not found: issue X");
         assert!(m(Failure::Usage("unknown flag".into())).starts_with("internal error"));
         assert_eq!(
-            m(Failure::RateLimited {
-                message: "slow down".into(),
-                retry_at: Some("T".into())
-            }),
+            m(Failure::RateLimited { message: "slow down".into(), retry_at: Some("T".into()) }),
             "slow down; retry after T"
         );
+        assert_eq!(m(Failure::RateLimited { message: "slow down".into(), retry_at: None }), "slow down");
         assert_eq!(
-            m(Failure::RateLimited {
-                message: "slow down".into(),
-                retry_at: None
-            }),
-            "slow down"
-        );
-        assert_eq!(
-            m(Failure::Crashed {
-                code: Some(101),
-                stderr: "a\nboom \n".into()
-            }),
+            m(Failure::Crashed { code: Some(101), stderr: "a\nboom \n".into() }),
             "linearctl failed (exit 101): boom"
         );
         assert_eq!(
-            m(Failure::Crashed {
-                code: None,
-                stderr: String::new()
-            }),
+            m(Failure::Crashed { code: None, stderr: String::new() }),
             "linearctl failed (a signal): "
         );
         assert!(m(Failure::Spawn("x".into())).starts_with("cannot run linearctl"));
-        assert_eq!(
-            m(Failure::Timeout(Duration::from_secs(20))),
-            "linearctl gave no answer in 20 s"
-        );
+        assert_eq!(m(Failure::Timeout(Duration::from_secs(20))), "linearctl gave no answer in 20 s");
         assert!(m(Failure::BadOutput("eof".into())).contains("eof"));
-        for f in [
-            Failure::Partial("p".into()),
-            Failure::Busy("b".into()),
-            Failure::Auth("a".into()),
-        ] {
+        for f in [Failure::Partial("p".into()), Failure::Busy("b".into()), Failure::Auth("a".into())] {
             assert_eq!(f.message().len(), 1);
         }
     }

@@ -31,10 +31,7 @@ pub struct View {
 
 impl View {
     pub fn new(name: &str, args: &[&str]) -> Self {
-        Self {
-            name: name.into(),
-            args: args.iter().map(|a| (*a).to_string()).collect(),
-        }
+        Self { name: name.into(), args: args.iter().map(|a| (*a).to_string()).collect() }
     }
 }
 
@@ -54,17 +51,7 @@ pub fn default_views() -> Vec<View> {
                 "priority",
             ],
         ),
-        View::new(
-            "Active",
-            &[
-                "--state-type",
-                "unstarted",
-                "--state-type",
-                "started",
-                "--sort",
-                "priority",
-            ],
-        ),
+        View::new("Active", &["--state-type", "unstarted", "--state-type", "started", "--sort", "priority"]),
         View::new("Triage", &["--state-type", "triage"]),
         View::new("Recent", &["--updated-since", "7d"]),
     ]
@@ -73,35 +60,16 @@ pub fn default_views() -> Vec<View> {
 /// Every command line the app can build for these views, for checking a
 /// linearctl's `describe` before starting.
 pub fn required_argvs(views: &[View]) -> Vec<Vec<String>> {
-    let mut v: Vec<Vec<String>> = views
-        .iter()
-        .map(|v| ctl::list_argv(&v.args, PAGE, Some("cursor")))
-        .collect();
+    let mut v: Vec<Vec<String>> =
+        views.iter().map(|v| ctl::list_argv(&v.args, PAGE, Some("cursor"))).collect();
     v.push(ctl::show_argv("ENG-1"));
     v.push(ctl::auth_status_argv());
-    for what in [
-        Lookup::Teams,
-        Lookup::States,
-        Lookup::Labels,
-        Lookup::Users,
-        Lookup::Projects,
-    ] {
+    for what in [Lookup::Teams, Lookup::States, Lookup::Labels, Lookup::Users, Lookup::Projects] {
         v.push(ctl::lookup_argv(what, "ENG"));
     }
-    let every = [
-        ("state", "s"),
-        ("priority", "1"),
-        ("assignee", "me"),
-        ("label", "l"),
-        ("project", "p"),
-    ];
+    let every = [("state", "s"), ("priority", "1"), ("assignee", "me"), ("label", "l"), ("project", "p")];
     let mut update = ctl::update_argv("ENG-1", &every, ctl::Mode::DryRun);
-    update.extend([
-        "--add-label".into(),
-        "l".into(),
-        "--remove-label".into(),
-        "l".into(),
-    ]);
+    update.extend(["--add-label".into(), "l".into(), "--remove-label".into(), "l".into()]);
     update.extend(["--description-file".into(), "f".into()]);
     v.push(update);
     let mut create = ctl::create_argv(&[("team", "ENG"), ("title", "t")], "id", ctl::Mode::Yes);
@@ -120,20 +88,13 @@ pub fn required_argvs(views: &[View]) -> Vec<Vec<String>> {
 /// Whether this linearctl can refuse an update when the issue changed
 /// since it was read (`--if-updated-at`, linearctl 0.2.0).
 pub fn can_check_updated(d: &crate::contract::Describe) -> bool {
-    let probe = ctl::update_argv(
-        "ENG-1",
-        &[("if-updated-at", "2026-01-01T00:00:00Z")],
-        ctl::Mode::DryRun,
-    );
+    let probe = ctl::update_argv("ENG-1", &[("if-updated-at", "2026-01-01T00:00:00Z")], ctl::Mode::DryRun);
     d.check_argv(&probe).is_empty()
 }
 
 /// What `describe` lacks for these views; empty when linearctl will do.
 pub fn missing(d: &crate::contract::Describe, views: &[View]) -> Vec<String> {
-    required_argvs(views)
-        .iter()
-        .flat_map(|a| d.check_argv(a))
-        .collect()
+    required_argvs(views).iter().flat_map(|a| d.check_argv(a)).collect()
 }
 
 /// A linearctl call to make; its result comes back as a [`Msg`].
@@ -170,39 +131,20 @@ impl Request {
     /// Run it (blocking) and turn the answer into the message for `update`.
     pub fn run(self, runner: &(impl ctl::Exec + ?Sized)) -> Msg {
         match self {
-            Request::List {
-                generation,
-                argv,
-                append,
-            } => Msg::Listed {
-                generation,
-                append,
-                result: ctl::run_as(runner, &argv),
-            },
+            Request::List { generation, argv, append } => {
+                Msg::Listed { generation, append, result: ctl::run_as(runner, &argv) }
+            }
             Request::Show { id, argv } => Msg::Shown {
                 id,
                 result: ctl::run_as::<crate::model::ShowResult>(runner, &argv).map(|s| Box::new(s.issue)),
             },
             Request::Auth { argv } => Msg::Authed(ctl::run_as(runner, &argv)),
-            Request::Lookup { what, team, argv } => Msg::Looked {
-                what,
-                team,
-                result: ctl::run_as(runner, &argv),
-            },
-            Request::Write {
-                purpose,
-                argv,
-                text,
-                summary,
-            } => {
+            Request::Lookup { what, team, argv } => {
+                Msg::Looked { what, team, result: ctl::run_as(runner, &argv) }
+            }
+            Request::Write { purpose, argv, text, summary } => {
                 let result = run_write(runner, &argv, text.as_ref()).map(Box::new);
-                Msg::Wrote {
-                    purpose,
-                    argv,
-                    text,
-                    summary,
-                    result,
-                }
+                Msg::Wrote { purpose, argv, text, summary, result }
             }
         }
     }
@@ -224,17 +166,12 @@ fn run_write(
     opts.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-    let written = opts
-        .open(&path)
-        .and_then(|mut f| std::io::Write::write_all(&mut f, t.text.as_bytes()));
+    let written = opts.open(&path).and_then(|mut f| std::io::Write::write_all(&mut f, t.text.as_bytes()));
     if let Err(e) = written {
         return Err(Failure::Spawn(format!("cannot write {}: {e}", path.display())));
     }
     let mut a = argv.to_vec();
-    let at = a
-        .iter()
-        .position(|w| w == "--dry-run" || w == "--yes")
-        .unwrap_or(a.len());
+    let at = a.iter().position(|w| w == "--dry-run" || w == "--yes").unwrap_or(a.len());
     a.splice(at..at, [format!("--{}-file", t.flag), path.display().to_string()]);
     let result = ctl::run_as(runner, &a);
     let _ = std::fs::remove_file(&path);
@@ -423,10 +360,7 @@ impl App {
         if !self.images_on {
             return Vec::new();
         }
-        let texts = issue
-            .description
-            .iter()
-            .chain(issue.comments.iter().map(|c| &c.body));
+        let texts = issue.description.iter().chain(issue.comments.iter().map(|c| &c.body));
         let mut fx = Vec::new();
         for (url, _) in texts.flat_map(|t| crate::markdown::image_urls(t)) {
             let Some(path) = crate::images::upload_path(&url) else {
@@ -442,9 +376,7 @@ impl App {
 
     /// What to run at start: who we are, and the first view.
     pub fn start(&mut self) -> Vec<Effect> {
-        let mut fx = vec![Effect::Run(Request::Auth {
-            argv: ctl::auth_status_argv(),
-        })];
+        let mut fx = vec![Effect::Run(Request::Auth { argv: ctl::auth_status_argv() })];
         fx.extend(self.load_view());
         fx
     }
@@ -452,10 +384,7 @@ impl App {
     /// Rows that pass the local filter.
     pub fn visible(&self) -> Vec<&IssueRow> {
         let needle = self.filter.to_lowercase();
-        self.rows
-            .iter()
-            .filter(|r| needle.is_empty() || matches(r, &needle))
-            .collect()
+        self.rows.iter().filter(|r| needle.is_empty() || matches(r, &needle)).collect()
     }
 
     pub fn selected_row(&self) -> Option<&IssueRow> {
@@ -474,11 +403,7 @@ impl App {
         self.generation += 1;
         self.loading = true;
         let argv = ctl::list_argv(&self.list_args(), PAGE, None);
-        vec![Effect::Run(Request::List {
-            generation: self.generation,
-            argv,
-            append: false,
-        })]
+        vec![Effect::Run(Request::List { generation: self.generation, argv, append: false })]
     }
 
     fn load_more(&mut self) -> Vec<Effect> {
@@ -486,11 +411,7 @@ impl App {
             (Some(c), false) => {
                 self.loading = true;
                 let argv = ctl::list_argv(&self.list_args(), PAGE, Some(c));
-                vec![Effect::Run(Request::List {
-                    generation: self.generation,
-                    argv,
-                    append: true,
-                })]
+                vec![Effect::Run(Request::List { generation: self.generation, argv, append: true })]
             }
             _ => Vec::new(),
         }
@@ -516,28 +437,16 @@ impl App {
         };
         let id = row.identifier.clone();
         self.focus = Focus::Detail;
-        if self
-            .detail
-            .as_ref()
-            .is_some_and(|d| d.id == id && d.issue.is_some())
-        {
+        if self.detail.as_ref().is_some_and(|d| d.id == id && d.issue.is_some()) {
             return Vec::new();
         }
         let issue = self.cache.get(&id).cloned();
         let cached = issue.is_some();
-        self.detail = Some(Detail {
-            id: id.clone(),
-            issue,
-            error: None,
-            scroll: 0,
-        });
+        self.detail = Some(Detail { id: id.clone(), issue, error: None, scroll: 0 });
         if cached {
             return self.image_effects();
         }
-        vec![Effect::Run(Request::Show {
-            argv: ctl::show_argv(&id),
-            id,
-        })]
+        vec![Effect::Run(Request::Show { argv: ctl::show_argv(&id), id })]
     }
 
     fn move_to(&mut self, i: usize) -> Vec<Effect> {
@@ -547,11 +456,7 @@ impl App {
         }
         self.selected = i.min(n - 1);
         // Near the end of what is loaded: fetch the next page.
-        if self.selected + 5 >= n && self.filter.is_empty() {
-            self.load_more()
-        } else {
-            Vec::new()
-        }
+        if self.selected + 5 >= n && self.filter.is_empty() { self.load_more() } else { Vec::new() }
     }
 
     fn step(&mut self, delta: isize) -> Vec<Effect> {
@@ -601,10 +506,7 @@ impl App {
             Msg::Image { url, result } => {
                 if let Some(path) = crate::images::upload_path(&url) {
                     let slot = match result {
-                        Ok(image) => ImageSlot::Ready(Box::new(Pic {
-                            image: *image,
-                            proto: None,
-                        })),
+                        Ok(image) => ImageSlot::Ready(Box::new(Pic { image: *image, proto: None })),
                         Err(e) => ImageSlot::Failed(e),
                     };
                     self.images.insert(path.to_string(), slot);
@@ -615,13 +517,9 @@ impl App {
                 self.on_looked(what, &team, result);
                 Vec::new()
             }
-            Msg::Wrote {
-                purpose,
-                argv,
-                text,
-                summary,
-                result,
-            } => self.on_wrote(purpose, argv, text, summary, result),
+            Msg::Wrote { purpose, argv, text, summary, result } => {
+                self.on_wrote(purpose, argv, text, summary, result)
+            }
             Msg::Edited { purpose, text } => self.on_edited(purpose, text),
             Msg::Authed(Ok(a)) => {
                 self.auth = Some(a);
@@ -793,10 +691,7 @@ impl App {
             KeyCode::Char('r') => {
                 let id = d.id.clone();
                 self.cache.remove(&id);
-                return vec![Effect::Run(Request::Show {
-                    argv: ctl::show_argv(&id),
-                    id,
-                })];
+                return vec![Effect::Run(Request::Show { argv: ctl::show_argv(&id), id })];
             }
             KeyCode::Char('i') => {
                 self.images_on = !self.images_on;
@@ -845,13 +740,8 @@ mod tests {
 
     /// Run a request against the fake, as main would.
     fn answer(fx: &Effect) -> Msg {
-        let Effect::Run(req) = fx else {
-            panic!("not a request: {fx:?}")
-        };
-        req.clone().run(&fake::InProcess {
-            now: now(),
-            state: None,
-        })
+        let Effect::Run(req) = fx else { panic!("not a request: {fx:?}") };
+        req.clone().run(&fake::InProcess { now: now(), state: None })
     }
 
     /// Apply a message and answer every request it makes, recursively.
@@ -947,19 +837,11 @@ mod tests {
         let fx = app.start();
         for f in fx {
             let msg = match answer(&f) {
-                Msg::Listed {
-                    generation,
-                    append,
-                    result: Ok(mut p),
-                } => {
+                Msg::Listed { generation, append, result: Ok(mut p) } => {
                     p.items.truncate(10);
                     p.truncated = true;
                     p.next_cursor = Some(p.items[9].id.clone());
-                    Msg::Listed {
-                        generation,
-                        append,
-                        result: Ok(p),
-                    }
+                    Msg::Listed { generation, append, result: Ok(p) }
                 }
                 m => m,
             };
@@ -1094,9 +976,7 @@ mod tests {
     fn failures_go_to_the_status_bar() {
         let mut app = started();
         let fx = app.update(ch('r'));
-        let Effect::Run(Request::List { generation, .. }) = fx[0] else {
-            panic!()
-        };
+        let Effect::Run(Request::List { generation, .. }) = fx[0] else { panic!() };
         app.update(Msg::Listed {
             generation,
             append: false,
@@ -1107,20 +987,11 @@ mod tests {
         app.update(Msg::Authed(Err(Failure::Failed("offline".into()))));
         assert_eq!(app.status.as_deref(), Some("offline"));
         app.update(key(KeyCode::Enter));
-        app.update(Msg::Shown {
-            id: "ENG-142".into(),
-            result: Err(Failure::Failed("gone".into())),
-        });
+        app.update(Msg::Shown { id: "ENG-142".into(), result: Err(Failure::Failed("gone".into())) });
         assert_eq!(app.detail.as_ref().unwrap().error.as_deref(), Some("gone"));
         // An answer for an issue no longer open is cached, not shown.
-        app.update(Msg::Shown {
-            id: "ENG-999".into(),
-            result: Ok(Box::default()),
-        });
-        app.update(Msg::Shown {
-            id: "ENG-998".into(),
-            result: Err(Failure::Failed("x".into())),
-        });
+        app.update(Msg::Shown { id: "ENG-999".into(), result: Ok(Box::default()) });
+        app.update(Msg::Shown { id: "ENG-998".into(), result: Err(Failure::Failed("x".into())) });
         assert_eq!(app.detail.as_ref().unwrap().id, "ENG-142");
     }
 
@@ -1171,10 +1042,7 @@ mod tests {
                 "https://uploads.linear.app/demo/checkout-error.png?signature=demo-300".into()
             )]
         );
-        assert!(matches!(
-            app.images.get("/demo/checkout-error.png"),
-            Some(ImageSlot::Loading)
-        ));
+        assert!(matches!(app.images.get("/demo/checkout-error.png"), Some(ImageSlot::Loading)));
         // Back and in again: cached, and the image is already asked for.
         drive(&mut app, key(KeyCode::Esc));
         drive(&mut app, ch('j'));
@@ -1186,24 +1054,15 @@ mod tests {
             url: "https://uploads.linear.app/demo/checkout-error.png?x".into(),
             result: Err("boom".into()),
         });
-        assert_eq!(
-            format!("{:?}", app.images["/demo/checkout-error.png"]),
-            "Failed(boom)"
-        );
-        app.update(Msg::Image {
-            url: "https://example.com/not-an-upload".into(),
-            result: Err("x".into()),
-        });
+        assert_eq!(format!("{:?}", app.images["/demo/checkout-error.png"]), "Failed(boom)");
+        app.update(Msg::Image { url: "https://example.com/not-an-upload".into(), result: Err("x".into()) });
         assert_eq!(app.images.len(), 1);
         let img = Box::new(image::DynamicImage::new_rgb8(4, 2));
         app.update(Msg::Image {
             url: "https://uploads.linear.app/demo/checkout-error.png".into(),
             result: Ok(img),
         });
-        assert_eq!(
-            format!("{:?}", app.images["/demo/checkout-error.png"]),
-            "Ready(4x2)"
-        );
+        assert_eq!(format!("{:?}", app.images["/demo/checkout-error.png"]), "Ready(4x2)");
         assert_eq!(format!("{:?}", ImageSlot::Loading), "Loading");
     }
 
@@ -1266,18 +1125,11 @@ mod tests {
         }
         app.now += chrono::Duration::seconds(1);
         assert!(search_for(&mut app, "more").is_empty());
-        assert!(
-            app.status.as_deref().unwrap().contains("try again in 40 s"),
-            "{:?}",
-            app.status
-        );
+        assert!(app.status.as_deref().unwrap().contains("try again in 40 s"), "{:?}", app.status);
         assert_eq!(app.filter, "more", "the text stays as a local filter");
         app.now += chrono::Duration::seconds(40);
         drive(&mut app, key(KeyCode::Esc));
-        assert!(
-            !search_for(&mut app, "more").is_empty(),
-            "the oldest search has aged out"
-        );
+        assert!(!search_for(&mut app, "more").is_empty(), "the oldest search has aged out");
     }
 
     #[test]

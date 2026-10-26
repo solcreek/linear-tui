@@ -45,11 +45,9 @@ fn answer(line: &str, now: DateTime<Utc>, state: Option<&Path>) -> Value {
         Err(e) => return refused(Value::Null, &format!("not a request: {e}")),
     };
     let id = req["id"].clone();
-    let words = req["argv"].as_array().map(|a| {
-        a.iter()
-            .map(|w| w.as_str().map(str::to_string))
-            .collect::<Option<Vec<_>>>()
-    });
+    let words = req["argv"]
+        .as_array()
+        .map(|a| a.iter().map(|w| w.as_str().map(str::to_string)).collect::<Option<Vec<_>>>());
     let Some(Some(argv)) = words else {
         return refused(id, "argv must be a list of strings");
     };
@@ -61,11 +59,7 @@ fn answer(line: &str, now: DateTime<Utc>, state: Option<&Path>) -> Value {
     }
     let out = run_in(&argv, now, state);
     let parsed: Option<Value> = serde_json::from_str(&out.stdout).ok();
-    let stdout = if parsed.is_some() {
-        Value::Null
-    } else {
-        json!(out.stdout)
-    };
+    let stdout = if parsed.is_some() { Value::Null } else { json!(out.stdout) };
     json!({"id": id, "exit": out.code, "result": parsed.unwrap_or(Value::Null), "stdout": stdout, "stderr": out.stderr})
 }
 
@@ -84,10 +78,7 @@ fn snapshot(
         return Err((out.code, out.stdout));
     }
     let items = v["items"].as_array().cloned().unwrap_or_default();
-    Ok(items
-        .into_iter()
-        .map(|i| (i["id"].as_str().unwrap_or_default().to_string(), i))
-        .collect())
+    Ok(items.into_iter().map(|i| (i["id"].as_str().unwrap_or_default().to_string(), i)).collect())
 }
 
 /// `watch`: prints events until `keep_going` says stop (or the output
@@ -158,11 +149,8 @@ pub fn watch(
         }
         for (id, row) in &known {
             if !current.contains_key(id) {
-                let show = run_in(
-                    &["issue".into(), "show".into(), id.clone(), "--json".into()],
-                    start,
-                    state,
-                );
+                let show =
+                    run_in(&["issue".into(), "show".into(), id.clone(), "--json".into()], start, state);
                 let archived = show.stdout.contains("\"archivedAt\":\"");
                 let reason = if archived { "archived" } else { "filter" };
                 if !emit(
@@ -187,10 +175,7 @@ mod tests {
     }
 
     fn lines(out: &[u8]) -> Vec<Value> {
-        String::from_utf8_lossy(out)
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect()
+        String::from_utf8_lossy(out).lines().map(|l| serde_json::from_str(l).unwrap()).collect()
     }
 
     #[test]
@@ -217,25 +202,15 @@ mod tests {
             "Checkout fails when a coupon code has trailing whitespace"
         );
         assert_eq!(a[0]["stdout"], Value::Null);
-        assert_eq!(
-            (a[1]["id"].clone(), a[1]["exit"].clone()),
-            (json!("two"), json!(1))
-        );
+        assert_eq!((a[1]["id"].clone(), a[1]["exit"].clone()), (json!("two"), json!(1)));
         assert!(a[1]["result"]["error"].as_str().unwrap().starts_with("not found"));
         assert_eq!(a[2]["result"], Value::Null, "text output");
         assert!(a[2]["stdout"].as_str().unwrap().starts_with("linearctl 0.3.0"));
-        for (i, needle) in [
-            (3, "run watch on its own"),
-            (4, "not -"),
-            (5, "argv must be"),
-            (6, "not a request"),
-        ] {
+        for (i, needle) in
+            [(3, "run watch on its own"), (4, "not -"), (5, "argv must be"), (6, "not a request")]
+        {
             assert_eq!(a[i]["exit"], 2, "{i}");
-            assert!(
-                a[i]["result"]["error"].as_str().unwrap().contains(needle),
-                "{i}: {}",
-                a[i]
-            );
+            assert!(a[i]["result"]["error"].as_str().unwrap().contains(needle), "{i}: {}", a[i]);
         }
         assert_eq!(a[6]["id"], Value::Null);
     }
@@ -323,14 +298,7 @@ mod tests {
     #[test]
     fn watch_with_a_bad_filter_ends_with_the_error() {
         let mut out = Vec::new();
-        let code = watch(
-            &["--sort".into(), "x".into()],
-            &mut out,
-            now,
-            None,
-            || true,
-            Duration::ZERO,
-        );
+        let code = watch(&["--sort".into(), "x".into()], &mut out, now, None, || true, Duration::ZERO);
         assert_eq!(code, 2);
         assert!(lines(&out)[0]["error"].as_str().unwrap().contains("--sort"));
     }
@@ -346,9 +314,6 @@ mod tests {
                 Ok(())
             }
         }
-        assert_eq!(
-            watch(&[], Closed, now, None, || panic!("never polled"), Duration::ZERO),
-            0
-        );
+        assert_eq!(watch(&[], Closed, now, None, || panic!("never polled"), Duration::ZERO), 0);
     }
 }

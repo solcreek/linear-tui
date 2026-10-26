@@ -33,11 +33,7 @@ pub mod theme {
     use super::*;
     pub fn heading(level: usize) -> Style {
         let s = Style::new().add_modifier(Modifier::BOLD);
-        if level <= 2 {
-            s.add_modifier(Modifier::UNDERLINED)
-        } else {
-            s
-        }
+        if level <= 2 { s.add_modifier(Modifier::UNDERLINED) } else { s }
     }
     pub fn code() -> Style {
         Style::new().fg(Color::Yellow)
@@ -56,10 +52,7 @@ pub mod theme {
 /// Render `markdown` to lines at most `width` cells wide.
 pub fn render(markdown: &str, width: u16) -> Rendered {
     let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let mut r = Renderer {
-        width: usize::from(width).max(8),
-        ..Default::default()
-    };
+    let mut r = Renderer { width: usize::from(width).max(8), ..Default::default() };
     for event in Parser::new_ext(markdown, opts) {
         r.event(event);
     }
@@ -164,8 +157,7 @@ impl Renderer {
             }
             Event::TaskListMarker(done) => {
                 let style = if done { theme::dim() } else { Style::new() };
-                self.runs
-                    .push((if done { "[x] " } else { "[ ] " }.to_string(), style));
+                self.runs.push((if done { "[x] " } else { "[ ] " }.to_string(), style));
             }
             Event::FootnoteReference(t) | Event::InlineMath(t) | Event::DisplayMath(t) => self.text(&t),
         }
@@ -276,17 +268,9 @@ impl Renderer {
                     self.flush();
                     self.block_gap();
                     let mut spans = self.prefix(true);
-                    let label = if alt.is_empty() {
-                        "image".to_string()
-                    } else {
-                        alt.clone()
-                    };
+                    let label = if alt.is_empty() { "image".to_string() } else { alt.clone() };
                     spans.push(Span::styled(format!("□ {label}"), theme::dim()));
-                    self.out.images.push(ImageRef {
-                        line: self.out.lines.len(),
-                        url,
-                        alt,
-                    });
+                    self.out.images.push(ImageRef { line: self.out.lines.len(), url, alt });
                     self.out.lines.push(Line::from(spans));
                 }
             }
@@ -311,11 +295,8 @@ impl Renderer {
 
     /// A blank line before a block, except at the top and inside lists.
     fn block_gap(&mut self) {
-        let last_blank = self
-            .out
-            .lines
-            .last()
-            .is_none_or(|l| spans_width(&l.spans) == 0 || is_prefix_only(l));
+        let last_blank =
+            self.out.lines.last().is_none_or(|l| spans_width(&l.spans) == 0 || is_prefix_only(l));
         if self.lists.is_empty() && !last_blank {
             let prefix = self.prefix(false);
             self.out.lines.push(Line::from(prefix));
@@ -331,11 +312,7 @@ impl Renderer {
         if !self.lists.is_empty() {
             spans.push(Span::raw("  ".repeat(self.lists.len() - 1)));
             let marker = if first { self.marker.take() } else { None };
-            let indent = if self.lists.last().copied().flatten().is_some() {
-                "   "
-            } else {
-                "  "
-            };
+            let indent = if self.lists.last().copied().flatten().is_some() { "   " } else { "  " };
             match marker {
                 Some(m) => spans.push(Span::styled(m, theme::dim())),
                 None => spans.push(Span::raw(indent)),
@@ -382,23 +359,11 @@ impl Renderer {
         let sep = 3; // " │ "
         let room = self.width.saturating_sub(prefix_w + sep * cols.saturating_sub(1));
         let mut widths: Vec<usize> = (0..cols)
-            .map(|c| {
-                t.rows
-                    .iter()
-                    .filter_map(|r| r.get(c))
-                    .map(|s| s.width())
-                    .max()
-                    .unwrap_or(0)
-            })
+            .map(|c| t.rows.iter().filter_map(|r| r.get(c)).map(|s| s.width()).max().unwrap_or(0))
             .collect();
         // Shrink the widest column until the table fits.
         while widths.iter().sum::<usize>() > room {
-            let (i, w) = widths
-                .iter()
-                .copied()
-                .enumerate()
-                .max_by_key(|&(_, w)| w)
-                .expect("a column");
+            let (i, w) = widths.iter().copied().enumerate().max_by_key(|&(_, w)| w).expect("a column");
             if w <= 3 {
                 break;
             }
@@ -406,11 +371,8 @@ impl Renderer {
         }
         for (r, row) in t.rows.iter().enumerate() {
             let mut spans = self.prefix(false);
-            let style = if r < t.header_rows {
-                Style::new().add_modifier(Modifier::BOLD)
-            } else {
-                Style::new()
-            };
+            let style =
+                if r < t.header_rows { Style::new().add_modifier(Modifier::BOLD) } else { Style::new() };
             for (c, w) in widths.iter().enumerate() {
                 if c > 0 {
                     spans.push(Span::styled(" │ ", theme::dim()));
@@ -430,9 +392,7 @@ impl Renderer {
 }
 
 fn is_prefix_only(l: &Line) -> bool {
-    l.spans
-        .iter()
-        .all(|s| s.content.trim().is_empty() || s.content.trim() == "│")
+    l.spans.iter().all(|s| s.content.trim().is_empty() || s.content.trim() == "│")
 }
 
 fn spans_width(spans: &[Span]) -> usize {
@@ -605,10 +565,7 @@ mod tests {
     use super::*;
 
     fn text(r: &Rendered) -> Vec<String> {
-        r.lines
-            .iter()
-            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
-            .collect()
+        r.lines.iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>()).collect()
     }
 
     fn lines(md: &str, width: u16) -> Vec<String> {
@@ -616,12 +573,7 @@ mod tests {
     }
 
     fn style_of(r: &Rendered, needle: &str) -> Style {
-        r.lines
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.contains(needle))
-            .expect(needle)
-            .style
+        r.lines.iter().flat_map(|l| &l.spans).find(|s| s.content.contains(needle)).expect(needle).style
     }
 
     #[test]
@@ -682,27 +634,18 @@ mod tests {
     #[test]
     fn lists() {
         let md = "- one\n- two\n  - nested\n\n1. first\n2. second\n";
-        assert_eq!(
-            lines(md, 40),
-            ["• one", "• two", "  ◦ nested", "", "1. first", "2. second"]
-        );
+        assert_eq!(lines(md, 40), ["• one", "• two", "  ◦ nested", "", "1. first", "2. second"]);
     }
 
     #[test]
     fn list_items_wrap_under_their_text() {
         assert_eq!(lines("- alpha beta gamma", 12), ["• alpha beta", "  gamma"]);
-        assert_eq!(
-            lines("3. alpha beta gamma", 12),
-            ["3. alpha", "   beta", "   gamma"]
-        );
+        assert_eq!(lines("3. alpha beta gamma", 12), ["3. alpha", "   beta", "   gamma"]);
     }
 
     #[test]
     fn loose_list_paragraphs() {
-        assert_eq!(
-            lines("- one\n\n  more\n- two\n", 40),
-            ["• one", "  more", "• two"]
-        );
+        assert_eq!(lines("- one\n\n  more\n- two\n", 40), ["• one", "  more", "• two"]);
     }
 
     #[test]
@@ -715,10 +658,7 @@ mod tests {
     #[test]
     fn code_blocks_keep_spaces_and_break_by_width() {
         let r = render("before\n\n```json\n{\n  \"a\": 1\n\n}\n```\nafter", 40);
-        assert_eq!(
-            text(&r),
-            ["before", "", "  {", "    \"a\": 1", "  ", "  }", "", "after"]
-        );
+        assert_eq!(text(&r), ["before", "", "  {", "    \"a\": 1", "  ", "  }", "", "after"]);
         assert_eq!(style_of(&r, "\"a\"").fg, Some(Color::Yellow));
         let long = lines("```\nabcdefghijklmnop\n```", 10);
         assert_eq!(long, ["  abcdefgh", "  ijklmnop"]);
@@ -733,10 +673,7 @@ mod tests {
 
     #[test]
     fn links_are_numbered_and_collected() {
-        let r = render(
-            "see [the PR](https://x.example/1) and [docs](https://x.example/2)",
-            60,
-        );
+        let r = render("see [the PR](https://x.example/1) and [docs](https://x.example/2)", 60);
         assert_eq!(text(&r), ["see the PR[1] and docs[2]"]);
         assert_eq!(r.links, ["https://x.example/1", "https://x.example/2"]);
         assert!(style_of(&r, "the PR").add_modifier.contains(Modifier::UNDERLINED));
@@ -744,18 +681,11 @@ mod tests {
 
     #[test]
     fn images_get_a_placeholder_line() {
-        let r = render(
-            "text\n\n![shot.png](https://uploads.linear.app/a/b)\n\n![](https://x/y.png)",
-            40,
-        );
+        let r = render("text\n\n![shot.png](https://uploads.linear.app/a/b)\n\n![](https://x/y.png)", 40);
         assert_eq!(text(&r), ["text", "", "□ shot.png", "", "□ image"]);
         assert_eq!(
             r.images[0],
-            ImageRef {
-                line: 2,
-                url: "https://uploads.linear.app/a/b".into(),
-                alt: "shot.png".into()
-            }
+            ImageRef { line: 2, url: "https://uploads.linear.app/a/b".into(), alt: "shot.png".into() }
         );
         assert_eq!(r.images[1].line, 4);
     }
@@ -780,15 +710,7 @@ mod tests {
     #[test]
     fn tables() {
         let md = "| Step | Result |\n|---|---|\n| `paste` | 422 |\n| trim | ok |";
-        assert_eq!(
-            lines(md, 40),
-            [
-                "Step  │ Result",
-                "──────┼───────",
-                "paste │ 422   ",
-                "trim  │ ok    "
-            ]
-        );
+        assert_eq!(lines(md, 40), ["Step  │ Result", "──────┼───────", "paste │ 422   ", "trim  │ ok    "]);
         let narrow = lines("| a very long header | b |\n|---|---|\n| x | y |", 16);
         assert!(narrow.iter().all(|l| l.width() <= 16), "{narrow:?}");
         assert!(narrow[0].contains('…'));
@@ -814,15 +736,8 @@ mod tests {
         for issue in seed["issues"].as_array().unwrap() {
             for w in [30, 60, 100] {
                 let r = render(issue["description"].as_str().unwrap(), w);
-                let too_wide: Vec<_> = text(&r)
-                    .into_iter()
-                    .filter(|l| l.width() > usize::from(w))
-                    .collect();
-                assert!(
-                    too_wide.is_empty(),
-                    "{} at {w}: {too_wide:?}",
-                    issue["identifier"]
-                );
+                let too_wide: Vec<_> = text(&r).into_iter().filter(|l| l.width() > usize::from(w)).collect();
+                assert!(too_wide.is_empty(), "{} at {w}: {too_wide:?}", issue["identifier"]);
             }
         }
     }

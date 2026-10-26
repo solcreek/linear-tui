@@ -46,14 +46,8 @@ pub enum Purpose {
 /// What the editor is open for.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditFor {
-    Comment {
-        issue: String,
-    },
-    Description {
-        issue: String,
-        original: String,
-        updated_at: String,
-    },
+    Comment { issue: String },
+    Description { issue: String, original: String, updated_at: String },
     FormDescription,
 }
 
@@ -134,16 +128,8 @@ pub enum Overlay {
 }
 
 /// The create form's fields, in order.
-pub const FORM_FIELDS: [&str; 8] = [
-    "Title",
-    "Team",
-    "Status",
-    "Priority",
-    "Assignee",
-    "Labels",
-    "Project",
-    "Description",
-];
+pub const FORM_FIELDS: [&str; 8] =
+    ["Title", "Team", "Status", "Priority", "Assignee", "Labels", "Project", "Description"];
 
 /// A new issue being written.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -184,19 +170,11 @@ fn scope(what: Lookup, team: &str) -> String {
     }
 }
 
-const PRIORITIES: [(&str, i64); 5] = [
-    ("Urgent", 1),
-    ("High", 2),
-    ("Medium", 3),
-    ("Low", 4),
-    ("No priority", 0),
-];
+const PRIORITIES: [(&str, i64); 5] =
+    [("Urgent", 1), ("High", 2), ("Medium", 3), ("Low", 4), ("No priority", 0)];
 
 fn priority_name(p: i64) -> &'static str {
-    PRIORITIES
-        .iter()
-        .find(|(_, n)| *n == p)
-        .map_or("No priority", |(name, _)| name)
+    PRIORITIES.iter().find(|(_, n)| *n == p).map_or("No priority", |(name, _)| name)
 }
 
 /// The lookup a field's picker lists.
@@ -227,10 +205,7 @@ pub fn shell_line(argv: &[String], text: Option<&Text>) -> String {
     let mut words = vec!["linearctl".to_string()];
     words.extend(argv.iter().cloned());
     if let Some(t) = text {
-        let at = words
-            .iter()
-            .position(|w| w == "--dry-run" || w == "--yes")
-            .unwrap_or(words.len());
+        let at = words.iter().position(|w| w == "--dry-run" || w == "--yes").unwrap_or(words.len());
         words.splice(at..at, [format!("--{}-file", t.flag), "FILE".into()]);
     }
     shlex::try_join(words.iter().map(String::as_str)).unwrap_or_else(|_| words.join(" "))
@@ -335,22 +310,11 @@ impl App {
         match field {
             Field::Priority => {
                 let current = issue.map_or(form.map_or(0, |f| f.priority), |i| i.priority);
-                PRIORITIES
-                    .iter()
-                    .map(|(n, p)| item(n, &p.to_string(), None, "", *p == current))
-                    .collect()
+                PRIORITIES.iter().map(|(n, p)| item(n, &p.to_string(), None, "", *p == current)).collect()
             }
             Field::Team => list(Lookup::Teams)
                 .iter()
-                .map(|t| {
-                    item(
-                        &t.name,
-                        &t.key,
-                        None,
-                        &t.key,
-                        form.is_some_and(|f| f.team == t.key),
-                    )
-                })
+                .map(|t| item(&t.name, &t.key, None, &t.key, form.is_some_and(|f| f.team == t.key)))
                 .collect(),
             Field::State => {
                 let current = issue
@@ -360,13 +324,7 @@ impl App {
                 list(Lookup::States)
                     .iter()
                     .map(|s| {
-                        item(
-                            &s.name,
-                            &s.name,
-                            s.color.clone(),
-                            &s.kind,
-                            current.as_deref() == Some(&s.name),
-                        )
+                        item(&s.name, &s.name, s.color.clone(), &s.kind, current.as_deref() == Some(&s.name))
                     })
                     .collect()
             }
@@ -377,28 +335,13 @@ impl App {
                 };
                 let me = self.auth.as_ref().map(|a| a.user.email.clone());
                 let mut v = vec![
-                    item(
-                        "Me",
-                        "me",
-                        None,
-                        me.as_deref().unwrap_or(""),
-                        current.is_some() && current == me,
-                    ),
+                    item("Me", "me", None, me.as_deref().unwrap_or(""), current.is_some() && current == me),
                     item("Unassigned", "none", None, "", current.is_none()),
                 ];
                 v.extend(
-                    list(Lookup::Users)
-                        .iter()
-                        .filter(|u| Some(&u.email) != me.as_ref())
-                        .map(|u| {
-                            item(
-                                &u.name,
-                                &u.email,
-                                None,
-                                &u.email,
-                                current.as_deref() == Some(&u.email),
-                            )
-                        }),
+                    list(Lookup::Users).iter().filter(|u| Some(&u.email) != me.as_ref()).map(|u| {
+                        item(&u.name, &u.email, None, &u.email, current.as_deref() == Some(&u.email))
+                    }),
                 );
                 v
             }
@@ -438,11 +381,7 @@ impl App {
             }
             _ => None,
         };
-        let items = if waiting.is_some() {
-            Vec::new()
-        } else {
-            self.pick_items(&target)
-        };
+        let items = if waiting.is_some() { Vec::new() } else { self.pick_items(&target) };
         let cursor = items.iter().position(|i| i.chosen).unwrap_or(0);
         let title = title_of(field).to_string();
         let multi = field == Field::Labels;
@@ -461,16 +400,8 @@ impl App {
     /// A dry run of an `issue update`.
     fn quick(&mut self, issue: &str, flags: &[(&str, &str)], what: String) -> Vec<Effect> {
         let argv = ctl::update_argv(issue, flags, Mode::DryRun);
-        let purpose = Purpose::Quick {
-            issue: issue.into(),
-            what,
-        };
-        vec![Effect::Run(Request::Write {
-            purpose,
-            argv,
-            text: None,
-            summary: Vec::new(),
-        })]
+        let purpose = Purpose::Quick { issue: issue.into(), what };
+        vec![Effect::Run(Request::Write { purpose, argv, text: None, summary: Vec::new() })]
     }
 
     /// The keys that change an issue, from the list or the detail.
@@ -485,10 +416,7 @@ impl App {
         };
         if let Some(field) = field {
             let issue = self.target_issue()?;
-            return Some(self.open_picker(Target::Issue {
-                issue: Box::new(issue),
-                field,
-            }));
+            return Some(self.open_picker(Target::Issue { issue: Box::new(issue), field }));
         }
         match k.code {
             KeyCode::Char('A') => {
@@ -499,43 +427,25 @@ impl App {
                 let issue = self.target_issue()?;
                 let argv = ctl::archive_argv(&issue.identifier, Mode::DryRun);
                 let summary = vec![format!("  {}  {}", issue.identifier, issue.title)];
-                let purpose = Purpose::Archive {
-                    issue: issue.identifier,
-                };
-                Some(vec![Effect::Run(Request::Write {
-                    purpose,
-                    argv,
-                    text: None,
-                    summary,
-                })])
+                let purpose = Purpose::Archive { issue: issue.identifier };
+                Some(vec![Effect::Run(Request::Write { purpose, argv, text: None, summary })])
             }
             KeyCode::Char('c') if self.focus == Focus::Detail => {
                 let issue = self.target_issue()?.identifier;
-                Some(vec![Effect::Edit {
-                    purpose: EditFor::Comment { issue },
-                    text: String::new(),
-                }])
+                Some(vec![Effect::Edit { purpose: EditFor::Comment { issue }, text: String::new() }])
             }
             KeyCode::Char('c') => Some(self.open_form()),
             KeyCode::Char('E') if self.focus == Focus::Detail => {
                 let d = self.detail.as_ref()?.issue.as_ref()?;
                 let issue = d.row.identifier.clone();
                 let original = d.description.clone().unwrap_or_default();
-                let text = self
-                    .drafts
-                    .get(&issue)
-                    .cloned()
-                    .unwrap_or_else(|| original.clone());
+                let text = self.drafts.get(&issue).cloned().unwrap_or_else(|| original.clone());
                 if self.drafts.contains_key(&issue) {
                     self.notice = Some("Editing your unsent draft.".into());
                 }
                 let updated_at = d.row.updated_at.clone();
                 Some(vec![Effect::Edit {
-                    purpose: EditFor::Description {
-                        issue,
-                        original,
-                        updated_at,
-                    },
+                    purpose: EditFor::Description { issue, original, updated_at },
                     text,
                 }])
             }
@@ -547,18 +457,9 @@ impl App {
         let team = self
             .selected_row()
             .and_then(|r| r.team.as_ref().map(|t| t.key.clone()))
-            .or_else(|| {
-                self.lookups
-                    .get(Lookup::Teams, "")
-                    .and_then(|t| t.first())
-                    .map(|t| t.key.clone())
-            })
+            .or_else(|| self.lookups.get(Lookup::Teams, "").and_then(|t| t.first()).map(|t| t.key.clone()))
             .unwrap_or_default();
-        self.form = Some(Form {
-            id: uuid::Uuid::new_v4().to_string(),
-            team,
-            ..Form::default()
-        });
+        self.form = Some(Form { id: uuid::Uuid::new_v4().to_string(), team, ..Form::default() });
         self.need(Lookup::Teams, "")
     }
 
@@ -635,17 +536,9 @@ impl App {
             return Vec::new();
         }
         let current = p.visible().get(p.cursor).map(|(_, i)| (*i).clone());
-        let chosen: Vec<String> = p
-            .items
-            .iter()
-            .filter(|i| i.chosen)
-            .map(|i| i.value.clone())
-            .collect();
+        let chosen: Vec<String> = p.items.iter().filter(|i| i.chosen).map(|i| i.value.clone()).collect();
         match p.target {
-            Target::Issue {
-                issue,
-                field: Field::Labels,
-            } => {
+            Target::Issue { issue, field: Field::Labels } => {
                 let have: Vec<String> = issue.labels.iter().map(|l| l.name.clone()).collect();
                 let add: Vec<&String> = chosen.iter().filter(|c| !have.contains(c)).collect();
                 let remove: Vec<&String> = have.iter().filter(|h| !chosen.contains(h)).collect();
@@ -657,11 +550,7 @@ impl App {
                 flags.extend(remove.iter().map(|l| ("remove-label", l.as_str())));
                 let what = format!(
                     "labels: {}",
-                    if chosen.is_empty() {
-                        "none".to_string()
-                    } else {
-                        chosen.join(", ")
-                    }
+                    if chosen.is_empty() { "none".to_string() } else { chosen.join(", ") }
                 );
                 self.quick(&issue.identifier, &flags, what)
             }
@@ -730,10 +619,7 @@ impl App {
             KeyCode::Enter if field == "Title" => form.field += 1,
             KeyCode::Enter if field == "Description" => {
                 let text = form.description.clone();
-                return vec![Effect::Edit {
-                    purpose: EditFor::FormDescription,
-                    text,
-                }];
+                return vec![Effect::Edit { purpose: EditFor::FormDescription, text }];
             }
             KeyCode::Enter => {
                 let f = match field {
@@ -779,10 +665,8 @@ impl App {
             flags.push(("project", p));
         }
         let argv = ctl::create_argv(&flags, &f.id, Mode::DryRun);
-        let text = (!f.description.trim().is_empty()).then(|| Text {
-            flag: "description",
-            text: f.description.clone(),
-        });
+        let text = (!f.description.trim().is_empty())
+            .then(|| Text { flag: "description", text: f.description.clone() });
         let mut summary = vec![
             format!("  {}", f.title.trim()),
             format!("  Team {}  ·  {}", f.team, priority_name(f.priority)),
@@ -804,12 +688,7 @@ impl App {
             summary.push(format!("  {}", extra.join("  ·  ")));
         }
         summary.extend(preview(&f.description, 4));
-        vec![Effect::Run(Request::Write {
-            purpose: Purpose::Create,
-            argv,
-            text,
-            summary,
-        })]
+        vec![Effect::Run(Request::Write { purpose: Purpose::Create, argv, text, summary })]
     }
 
     /// The editor closed: `None` means it failed or was abandoned.
@@ -834,22 +713,10 @@ impl App {
                 let id = uuid::Uuid::new_v4().to_string();
                 let argv = ctl::comment_argv(&issue, &id, Mode::DryRun);
                 let summary = preview(&body, 6);
-                let text = Some(Text {
-                    flag: "body",
-                    text: body,
-                });
-                vec![Effect::Run(Request::Write {
-                    purpose: Purpose::Comment { issue },
-                    argv,
-                    text,
-                    summary,
-                })]
+                let text = Some(Text { flag: "body", text: body });
+                vec![Effect::Run(Request::Write { purpose: Purpose::Comment { issue }, argv, text, summary })]
             }
-            EditFor::Description {
-                issue,
-                original,
-                updated_at,
-            } => {
+            EditFor::Description { issue, original, updated_at } => {
                 let new = text.trim_end().to_string();
                 if new == original.trim_end() {
                     self.drafts.remove(&issue);
@@ -864,16 +731,10 @@ impl App {
                     Vec::new()
                 };
                 let argv = ctl::update_argv(&issue, &guard, Mode::DryRun);
-                let mut summary = vec![format!(
-                    "  {} → {} characters",
-                    original.chars().count(),
-                    new.chars().count()
-                )];
+                let mut summary =
+                    vec![format!("  {} → {} characters", original.chars().count(), new.chars().count())];
                 summary.extend(preview(&new, 6));
-                let text = Some(Text {
-                    flag: "description",
-                    text: new,
-                });
+                let text = Some(Text { flag: "description", text: new });
                 vec![Effect::Run(Request::Write {
                     purpose: Purpose::Description { issue },
                     argv,
@@ -922,12 +783,7 @@ impl App {
             }
             let yes = ctl::with_mode(&argv, Mode::Yes);
             if matches!(purpose, Purpose::Quick { .. }) {
-                return vec![Effect::Run(Request::Write {
-                    purpose,
-                    argv: yes,
-                    text,
-                    summary: Vec::new(),
-                })];
+                return vec![Effect::Run(Request::Write { purpose, argv: yes, text, summary: Vec::new() })];
             }
             let title = match &purpose {
                 Purpose::Comment { issue } => format!("Comment on {issue}"),
@@ -937,25 +793,16 @@ impl App {
                 Purpose::Quick { issue, .. } => issue.clone(),
             };
             let command = shell_line(&yes, text.as_ref());
-            self.overlay = Some(Overlay::Confirm(Confirm {
-                title,
-                lines: summary,
-                command,
-                argv: yes,
-                text,
-                purpose,
-            }));
+            self.overlay =
+                Some(Overlay::Confirm(Confirm { title, lines: summary, command, argv: yes, text, purpose }));
             return Vec::new();
         }
         self.status = None;
         match purpose {
             Purpose::Quick { issue, what } => {
                 self.apply_row(r.issue);
-                self.notice = Some(if r.changed {
-                    format!("{issue}: {what}")
-                } else {
-                    "Nothing to change.".into()
-                });
+                self.notice =
+                    Some(if r.changed { format!("{issue}: {what}") } else { "Nothing to change.".into() });
                 self.refresh_detail(&issue)
             }
             Purpose::Description { issue } => {
@@ -966,11 +813,7 @@ impl App {
             }
             Purpose::Comment { issue } => {
                 if let Some(c) = r.comment {
-                    let open = self
-                        .detail
-                        .as_mut()
-                        .filter(|d| d.id == issue)
-                        .and_then(|d| d.issue.as_mut());
+                    let open = self.detail.as_mut().filter(|d| d.id == issue).and_then(|d| d.issue.as_mut());
                     if let Some(i) = open
                         && !i.comments.iter().any(|x| x.id == c.id)
                     {
@@ -1003,16 +846,8 @@ impl App {
                 self.selected = 0;
                 self.notice = Some(format!("Created {id}"));
                 self.focus = Focus::Detail;
-                self.detail = Some(super::Detail {
-                    id: id.clone(),
-                    issue: None,
-                    error: None,
-                    scroll: 0,
-                });
-                vec![Effect::Run(Request::Show {
-                    argv: ctl::show_argv(&id),
-                    id,
-                })]
+                self.detail = Some(super::Detail { id: id.clone(), issue: None, error: None, scroll: 0 });
+                vec![Effect::Run(Request::Show { argv: ctl::show_argv(&id), id })]
             }
         }
     }
@@ -1029,10 +864,7 @@ impl App {
     fn refresh_detail(&mut self, issue: &str) -> Vec<Effect> {
         self.cache.remove(issue);
         if self.detail.as_ref().is_some_and(|d| d.id == issue) {
-            return vec![Effect::Run(Request::Show {
-                argv: ctl::show_argv(issue),
-                id: issue.to_string(),
-            })];
+            return vec![Effect::Run(Request::Show { argv: ctl::show_argv(issue), id: issue.to_string() })];
         }
         Vec::new()
     }
@@ -1072,10 +904,7 @@ mod tests {
         let _ = std::fs::remove_file(&state);
         let mut w = World {
             app: App::new(default_views(), now()),
-            exec: InProcess {
-                now: now(),
-                state: Some(state),
-            },
+            exec: InProcess { now: now(), state: Some(state) },
             edits: vec![],
         };
         let fx = w.app.start();
@@ -1104,9 +933,7 @@ mod tests {
         }
 
         fn ctrl(&mut self, c: char) {
-            let fx = self
-                .app
-                .update(Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)));
+            let fx = self.app.update(Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)));
             self.run(fx);
         }
 
@@ -1118,10 +945,7 @@ mod tests {
 
         fn edited(&mut self, text: Option<&str>) {
             let (purpose, _) = self.edits.pop().expect("an editor was asked for");
-            let fx = self.app.update(Msg::Edited {
-                purpose,
-                text: text.map(str::to_string),
-            });
+            let fx = self.app.update(Msg::Edited { purpose, text: text.map(str::to_string) });
             self.run(fx);
         }
 
@@ -1145,9 +969,7 @@ mod tests {
 
         fn show(&self, id: &str) -> crate::model::IssueDetail {
             let argv = ctl::show_argv(id);
-            ctl::run_as::<crate::model::ShowResult>(&self.exec, &argv)
-                .unwrap()
-                .issue
+            ctl::run_as::<crate::model::ShowResult>(&self.exec, &argv).unwrap().issue
         }
     }
 
@@ -1162,10 +984,7 @@ mod tests {
             p.items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>()[..3],
             ["Triage", "Backlog", "Todo"]
         );
-        assert_eq!(
-            p.items[p.cursor].label, "In Progress",
-            "starts on the current state"
-        );
+        assert_eq!(p.items[p.cursor].label, "In Progress", "starts on the current state");
         assert!(p.items[p.cursor].chosen);
         w.chars("rev");
         assert_eq!(w.picker().visible().len(), 1);
@@ -1225,13 +1044,8 @@ mod tests {
         let mut w = world("labels");
         w.key(KeyCode::Char('L'));
         assert!(w.picker().multi);
-        let chosen: Vec<&str> = w
-            .picker()
-            .items
-            .iter()
-            .filter(|i| i.chosen)
-            .map(|i| i.label.as_str())
-            .collect();
+        let chosen: Vec<&str> =
+            w.picker().items.iter().filter(|i| i.chosen).map(|i| i.label.as_str()).collect();
         assert_eq!(chosen, ["Bug", "Customer reported"]);
         w.chars("secu");
         w.key(KeyCode::Char(' '));
@@ -1242,10 +1056,7 @@ mod tests {
         w.chars("bug");
         w.key(KeyCode::Char(' '));
         w.key(KeyCode::Enter);
-        assert_eq!(
-            w.app.notice.as_deref(),
-            Some("ENG-142: labels: Security, Customer reported")
-        );
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-142: labels: Security, Customer reported"));
         let names: Vec<&str> = w.row("ENG-142").labels.iter().map(|l| l.name.as_str()).collect();
         assert_eq!(names, ["Customer reported", "Security"]);
         w.key(KeyCode::Char('L'));
@@ -1269,11 +1080,7 @@ mod tests {
     fn assign_to_me_and_archive() {
         let mut w = world("archive");
         w.key(KeyCode::Char('A'));
-        assert_eq!(
-            w.app.notice.as_deref(),
-            Some("Nothing to change."),
-            "ENG-142 is already mine"
-        );
+        assert_eq!(w.app.notice.as_deref(), Some("Nothing to change."), "ENG-142 is already mine");
         w.key(KeyCode::Char('2'));
         assert_eq!(w.app.selected_row().unwrap().identifier, "ENG-158");
         w.key(KeyCode::Char('A'));
@@ -1308,32 +1115,13 @@ mod tests {
         let mut w = world("comment");
         w.key(KeyCode::Enter);
         w.key(KeyCode::Char('c'));
-        assert_eq!(
-            w.edits.last().unwrap(),
-            &(
-                EditFor::Comment {
-                    issue: "ENG-142".into()
-                },
-                String::new()
-            )
-        );
+        assert_eq!(w.edits.last().unwrap(), &(EditFor::Comment { issue: "ENG-142".into() }, String::new()));
         w.edited(Some("Deployed to staging.\n\nChecking the partner API next."));
         let c = w.confirm();
         assert_eq!(c.title, "Comment on ENG-142");
-        assert_eq!(
-            c.lines,
-            ["  Deployed to staging.", "  ", "  Checking the partner API next."]
-        );
-        assert!(
-            c.command.starts_with("linearctl comment create ENG-142 --id "),
-            "{}",
-            c.command
-        );
-        assert!(
-            c.command.ends_with(" --body-file FILE --yes --json"),
-            "{}",
-            c.command
-        );
+        assert_eq!(c.lines, ["  Deployed to staging.", "  ", "  Checking the partner API next."]);
+        assert!(c.command.starts_with("linearctl comment create ENG-142 --id "), "{}", c.command);
+        assert!(c.command.ends_with(" --body-file FILE --yes --json"), "{}", c.command);
         w.key(KeyCode::Char('y'));
         assert_eq!(w.app.notice.as_deref(), Some("Comment added to ENG-142"));
         let shown = w.app.detail.as_ref().unwrap().issue.as_ref().unwrap();
@@ -1351,10 +1139,7 @@ mod tests {
         assert_eq!(w.app.notice.as_deref(), Some("Empty comment discarded."));
         w.key(KeyCode::Char('c'));
         w.edited(None);
-        assert_eq!(
-            w.app.status.as_deref(),
-            Some("The editor did not finish; nothing changed.")
-        );
+        assert_eq!(w.app.status.as_deref(), Some("The editor did not finish; nothing changed."));
     }
 
     #[test]
@@ -1374,10 +1159,7 @@ mod tests {
         assert!(c.lines[0].contains("→ 10 characters"), "{:?}", c.lines);
         // Cancelling keeps a draft; E opens it.
         w.key(KeyCode::Esc);
-        assert_eq!(
-            w.app.notice.as_deref(),
-            Some("Not sent. E edits your draft again.")
-        );
+        assert_eq!(w.app.notice.as_deref(), Some("Not sent. E edits your draft again."));
         w.key(KeyCode::Char('E'));
         assert_eq!(w.edits.last().unwrap().1, "Short now.");
         assert_eq!(w.app.notice.as_deref(), Some("Editing your unsent draft."));
@@ -1398,23 +1180,12 @@ mod tests {
         w.key(KeyCode::Enter);
         w.key(KeyCode::Char('E'));
         w.edited(Some("Mine."));
-        assert!(
-            w.app
-                .status
-                .as_deref()
-                .unwrap()
-                .contains("unknown flag: --if-updated-at")
-        );
+        assert!(w.app.status.as_deref().unwrap().contains("unknown flag: --if-updated-at"));
         assert_eq!(w.app.drafts["ENG-142"], "Mine.");
         // A conflict (exit 7) says what happened.
-        let text = Some(Text {
-            flag: "description",
-            text: "Mine again.".into(),
-        });
+        let text = Some(Text { flag: "description", text: "Mine again.".into() });
         let fx = w.app.update(Msg::Wrote {
-            purpose: Purpose::Description {
-                issue: "ENG-142".into(),
-            },
+            purpose: Purpose::Description { issue: "ENG-142".into() },
             argv: vec![],
             text,
             summary: vec![],
@@ -1431,9 +1202,7 @@ mod tests {
         assert_eq!(w.app.drafts["ENG-142"], "Mine again.");
         // Any other write's conflict is just its message.
         w.app.update(Msg::Wrote {
-            purpose: Purpose::Archive {
-                issue: "ENG-142".into(),
-            },
+            purpose: Purpose::Archive { issue: "ENG-142".into() },
             argv: vec![],
             text: None,
             summary: vec![],
@@ -1469,11 +1238,7 @@ mod tests {
         assert!(w.app.overlay.is_none());
         assert_eq!(w.app.status.as_deref(), Some("offline"));
         // A later success for a picker no longer open is just kept.
-        w.app.update(Msg::Looked {
-            what: Lookup::Users,
-            team: String::new(),
-            result: Ok(Page::default()),
-        });
+        w.app.update(Msg::Looked { what: Lookup::Users, team: String::new(), result: Ok(Page::default()) });
         assert!(w.app.lookups.get(Lookup::Users, "ENG").is_some());
     }
 
@@ -1524,20 +1289,8 @@ mod tests {
         w.edited(Some("Sell and redeem gift cards.\n"));
         let f = w.app.form.as_ref().unwrap();
         assert_eq!(
-            (
-                f.title.as_str(),
-                f.state.as_deref(),
-                f.priority,
-                f.labels.clone(),
-                f.project.as_deref()
-            ),
-            (
-                "Gift cards at checkout",
-                Some("Todo"),
-                2,
-                vec!["Feature".to_string()],
-                Some("Checkout v2")
-            )
+            (f.title.as_str(), f.state.as_deref(), f.priority, f.labels.clone(), f.project.as_deref()),
+            ("Gift cards at checkout", Some("Todo"), 2, vec!["Feature".to_string()], Some("Checkout v2"))
         );
         assert_eq!(f.assignee, Some(("me".into(), "Me".into())));
         assert_eq!(f.description, "Sell and redeem gift cards.");
@@ -1548,17 +1301,9 @@ mod tests {
         assert_eq!(c.title, "Create this issue?");
         assert_eq!(
             c.lines[..3],
-            [
-                "  Gift cards at checkout",
-                "  Team ENG  ·  High",
-                "  Todo  ·  Me  ·  Feature  ·  Checkout v2"
-            ]
+            ["  Gift cards at checkout", "  Team ENG  ·  High", "  Todo  ·  Me  ·  Feature  ·  Checkout v2"]
         );
-        assert!(
-            c.command.contains("--title 'Gift cards at checkout'"),
-            "{}",
-            c.command
-        );
+        assert!(c.command.contains("--title 'Gift cards at checkout'"), "{}", c.command);
         let id = w.app.form.as_ref().unwrap().id.clone();
         w.key(KeyCode::Char('y'));
         assert!(w.app.form.is_none());
@@ -1575,10 +1320,7 @@ mod tests {
         let mut w = world("form-checks");
         w.key(KeyCode::Char('c'));
         w.ctrl('s');
-        assert_eq!(
-            w.app.status.as_deref(),
-            Some("A new issue needs a team and a title.")
-        );
+        assert_eq!(w.app.status.as_deref(), Some("A new issue needs a team and a title."));
         w.app.form.as_mut().unwrap().team.clear();
         w.key(KeyCode::Tab);
         w.key(KeyCode::Tab);
@@ -1588,18 +1330,10 @@ mod tests {
         w.app.form.as_mut().unwrap().team = "ENG".into();
         w.app.form.as_mut().unwrap().labels = vec!["Bug".into()];
         let teams = Page {
-            items: vec![Named {
-                key: "WEB".into(),
-                name: "Web".into(),
-                ..Named::default()
-            }],
+            items: vec![Named { key: "WEB".into(), name: "Web".into(), ..Named::default() }],
             ..Page::default()
         };
-        w.app.update(Msg::Looked {
-            what: Lookup::Teams,
-            team: String::new(),
-            result: Ok(teams),
-        });
+        w.app.update(Msg::Looked { what: Lookup::Teams, team: String::new(), result: Ok(teams) });
         w.key(KeyCode::Up);
         w.key(KeyCode::Enter);
         w.key(KeyCode::Enter);
@@ -1647,21 +1381,10 @@ mod tests {
 
     #[test]
     fn helpers() {
-        let argv: Vec<String> = [
-            "issue",
-            "update",
-            "ENG-1",
-            "--title",
-            "It's done",
-            "--yes",
-            "--json",
-        ]
-        .map(String::from)
-        .to_vec();
-        let t = Text {
-            flag: "description",
-            text: "x".into(),
-        };
+        let argv: Vec<String> = ["issue", "update", "ENG-1", "--title", "It's done", "--yes", "--json"]
+            .map(String::from)
+            .to_vec();
+        let t = Text { flag: "description", text: "x".into() };
         assert_eq!(
             shell_line(&argv, Some(&t)),
             "linearctl issue update ENG-1 --title \"It's done\" --description-file FILE --yes --json"
