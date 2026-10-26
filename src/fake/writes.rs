@@ -412,7 +412,7 @@ fn archive(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, St
 }
 
 fn comment(raw: &mut Value, issue_id: &str, args: &Args, dry: bool) -> Result<Done, String> {
-    args.only(&["body", "body-file", "id", "dry-run", "yes"])?;
+    args.only(&["body", "body-file", "id", "parent", "dry-run", "yes"])?;
     let body =
         text(args, "body")?.filter(|b| !b.trim().is_empty()).ok_or("--body or --body-file is required")?;
     if !dry && args.one("id").is_none() {
@@ -430,13 +430,37 @@ fn comment(raw: &mut Value, issue_id: &str, args: &Args, dry: bool) -> Result<Do
         let doc = json!({"changed": false, "dryRun": dry, "id": id});
         return Ok(Done::Doc { doc, changed: false, item: Item::Comment(ident, id) });
     }
-    let doc = json!({"changed": true, "dryRun": dry, "id": id,
-                     "input": {"body": body, "id": id, "issueId": issue_uuid}});
+    // --parent: a comment of this issue; a reply joins its root's thread.
+    let parent = match args.one("parent") {
+        None => None,
+        Some(p) => {
+            let comments = issue["comments"].as_array().into_iter().flatten();
+            let Some(c) = comments.clone().find(|c| comment_uuid(c) == p) else {
+                return Ok(not_found("comment", p));
+            };
+            let root = match (c["parentUuid"].as_str(), c["parent"].as_str()) {
+                (Some(r), _) => r.to_string(),
+                (None, Some(seed)) => {
+                    comments.clone().find(|x| x["id"] == seed).map_or(p.to_string(), comment_uuid)
+                }
+                (None, None) => p.to_string(),
+            };
+            Some(root)
+        }
+    };
+    let mut input = json!({"body": body, "id": id, "issueId": issue_uuid});
+    if let Some(p) = &parent {
+        input["parentId"] = json!(p);
+    }
+    let doc = json!({"changed": true, "dryRun": dry, "id": id, "input": input});
     if !dry {
         if !issue["comments"].is_array() {
             issue["comments"] = json!([]);
         }
-        let c = json!({"id": id, "uuid": id, "user": viewer, "createdAt": anchor, "body": body});
+        let mut c = json!({"id": id, "uuid": id, "user": viewer, "createdAt": anchor, "body": body});
+        if let Some(p) = parent {
+            c["parentUuid"] = json!(p);
+        }
         issue["comments"].as_array_mut().expect("comments").push(c);
         issue["updatedAt"] = anchor;
     }
@@ -680,6 +704,43 @@ mod tests {
         assert_eq!(go("comment create ENG-158 --body x --yes --json", None).0, 2);
         assert_eq!(go("comment create ENG-999 --body x --dry-run --json", None).0, 1);
         assert_eq!(go("comment create ENG-158 --body x --id abc --yes --json", None).0, 1, "read-only");
+    }
+
+    #[test]
+    fn replies_join_the_root_thread() {
+        let st = state("reply");
+        let (_, show) = go("issue show ENG-142 --json", Some(&st));
+        let root = show["issue"]["comments"][0]["id"].as_str().unwrap().to_string();
+        let reply = show["issue"]["comments"][1]["id"].as_str().unwrap().to_string();
+        let (_, dry) =
+            go(&format!("comment create ENG-142 --body ok --parent {root} --dry-run --json"), Some(&st));
+        assert_eq!(dry["input"]["parentId"], json!(root));
+        // Replying to a reply goes to its root.
+        let cmd =
+            format!("comment create ENG-142 --body again --parent {reply} --id {} --yes --json", uuid("r1"));
+        let (code, v) = go(&cmd, Some(&st));
+        assert_eq!(code, 0, "{v}");
+        assert_eq!(v["comment"]["parent"]["id"], json!(root));
+        // And to a reply made here.
+        let made = v["comment"]["id"].as_str().unwrap().to_string();
+        let (_, v2) = go(
+            &format!("comment create ENG-142 --body third --parent {made} --id {} --yes --json", uuid("r2")),
+            Some(&st),
+        );
+        assert_eq!(v2["comment"]["parent"]["id"], json!(root));
+        // A new root, and a reply to it.
+        let (_, top) =
+            go(&format!("comment create ENG-142 --body top --id {} --yes --json", uuid("t1")), Some(&st));
+        let top_id = top["comment"]["id"].as_str().unwrap().to_string();
+        let (_, under) = go(
+            &format!(
+                "comment create ENG-142 --body under --parent {top_id} --id {} --yes --json",
+                uuid("u1")
+            ),
+            Some(&st),
+        );
+        assert_eq!(under["comment"]["parent"]["id"], json!(top_id));
+        assert_eq!(go("comment create ENG-142 --body x --parent nope --dry-run --json", None).0, 1);
     }
 
     #[test]

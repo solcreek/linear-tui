@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `R` in an issue replies in one of its comment threads (linearctl 0.2.0 or
+  later): pick the thread, write in `$EDITOR`, confirm.
+- `o` cycles the list's order between updated, created and priority.
 - Live updates: with linearctl 0.2.0 or later, the list follows `linearctl
   watch` for the view on screen (`● live` in the header): changed issues update
   in place, new ones appear on top, ones that stop matching go, and the open

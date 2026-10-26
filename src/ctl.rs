@@ -149,6 +149,11 @@ pub fn comment_argv(issue: &str, id: &str, mode: Mode) -> Vec<String> {
     argv(&["comment", "create", issue, "--id", id, mode.flag(), "--json"])
 }
 
+/// A reply in the thread of comment `parent` (linearctl 0.2.0).
+pub fn reply_argv(issue: &str, id: &str, parent: &str, mode: Mode) -> Vec<String> {
+    argv(&["comment", "create", issue, "--id", id, "--parent", parent, mode.flag(), "--json"])
+}
+
 pub fn archive_argv(issue: &str, mode: Mode) -> Vec<String> {
     argv(&["issue", "archive", issue, mode.flag(), "--json"])
 }
@@ -405,6 +410,9 @@ mod tests {
         assert_valid_in_both(&c);
         assert!(c.windows(2).any(|w| w == ["--id", "id-1"]) && c.contains(&"--yes".to_string()));
         assert_valid_in_both(&comment_argv("ENG-142", "id-2", Mode::DryRun));
+        let reply = reply_argv("ENG-142", "id-3", "c-1", Mode::DryRun);
+        assert!(describe_0_4_0().check_argv(&reply).is_empty());
+        assert!(!describe().check_argv(&reply).is_empty(), "0.1.0 has no --parent");
         assert_valid_in_both(&archive_argv("ENG-142", Mode::Yes));
         // The text flags the runner appends exist too.
         let mut d = update_argv("ENG-1", &[], Mode::DryRun);

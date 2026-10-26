@@ -350,7 +350,7 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
                 "j/k move · enter open · / filter · c new · s state · a assignee · p priority · ? help · q quit"
             }
             (Focus::Detail, None, None) => {
-                "j/k scroll · c comment · E edit description · s/a/p/L edit · ]/[ next · esc back · ? help"
+                "j/k scroll · c comment · R reply · E description · s/a/p/L edit · ]/[ next · esc back · ? help"
             }
         };
         Line::from(Span::styled(format!(" {hints}"), dim()))
@@ -670,6 +670,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ("n", "load more"),
         ("c", "new issue / comment (detail)"),
         ("E", "edit description (detail)"),
+        ("R", "reply in a thread (detail)"),
         ("s a p", "state / assignee / priority"),
         ("L P", "labels / project"),
         ("A", "assign to me"),

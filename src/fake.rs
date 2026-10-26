@@ -529,7 +529,11 @@ impl Workspace {
             "createdAt": c["createdAt"],
             "url": format!("https://linear.app/{}/issue/{issue}#comment-{}", self.org_key(), &id[..8]),
             "user": self.user_ref(&c["user"]),
-            "parent": c["parent"].as_str().map_or(Value::Null, |p| json!({"id": uuid(p)})),
+            "parent": match (c["parentUuid"].as_str(), c["parent"].as_str()) {
+                (Some(p), _) => json!({"id": p}),
+                (None, Some(p)) => json!({"id": uuid(p)}),
+                (None, None) => Value::Null,
+            },
         })
     }
 

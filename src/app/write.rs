@@ -34,6 +34,10 @@ pub enum Purpose {
     Comment {
         issue: String,
     },
+    Reply {
+        issue: String,
+        to: String,
+    },
     Description {
         issue: String,
     },
@@ -46,8 +50,20 @@ pub enum Purpose {
 /// What the editor is open for.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EditFor {
-    Comment { issue: String },
-    Description { issue: String, original: String, updated_at: String },
+    Comment {
+        issue: String,
+    },
+    /// A reply in the thread of comment `parent`, written by `to`.
+    Reply {
+        issue: String,
+        parent: String,
+        to: String,
+    },
+    Description {
+        issue: String,
+        original: String,
+        updated_at: String,
+    },
     FormDescription,
 }
 
@@ -71,6 +87,10 @@ pub enum Target {
         field: Field,
     },
     Form(Field),
+    /// Which thread of this issue to reply in.
+    Reply {
+        issue: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -285,6 +305,7 @@ impl App {
         match target {
             Target::Issue { issue, .. } => issue.team.as_ref().map(|t| t.key.clone()).unwrap_or_default(),
             Target::Form(_) => self.form.as_ref().map(|f| f.team.clone()).unwrap_or_default(),
+            Target::Reply { .. } => String::new(),
         }
     }
 
@@ -292,12 +313,14 @@ impl App {
     fn pick_items(&self, target: &Target) -> Vec<PickItem> {
         let field = match target {
             Target::Issue { field, .. } | Target::Form(field) => *field,
+            Target::Reply { .. } => return self.thread_items(),
         };
         let team = self.team_of(target);
         let form = self.form.as_ref();
         let issue = match target {
             Target::Issue { issue, .. } => Some(&**issue),
             Target::Form(_) => None,
+            Target::Reply { .. } => None,
         };
         let list = |what| self.lookups.get(what, &team).cloned().unwrap_or_default();
         let item = |label: &str, value: &str, color: Option<String>, hint: &str, chosen: bool| PickItem {
@@ -371,6 +394,21 @@ impl App {
     fn open_picker(&mut self, target: Target) -> Vec<Effect> {
         let field = match &target {
             Target::Issue { field, .. } | Target::Form(field) => *field,
+            Target::Reply { .. } => {
+                let items = self.thread_items();
+                let title = "Reply in which thread?".to_string();
+                let list = PickList {
+                    title,
+                    items,
+                    multi: false,
+                    cursor: 0,
+                    query: String::new(),
+                    target,
+                    waiting: None,
+                };
+                self.overlay = Some(Overlay::Pick(Box::new(list)));
+                return Vec::new();
+            }
         };
         let team = self.team_of(&target);
         let mut fx = Vec::new();
@@ -435,6 +473,28 @@ impl App {
                 Some(vec![Effect::Edit { purpose: EditFor::Comment { issue }, text: String::new() }])
             }
             KeyCode::Char('c') => Some(self.open_form()),
+            KeyCode::Char('R') if self.focus == Focus::Detail => {
+                let issue = self.target_issue()?.identifier;
+                if !self.can_reply {
+                    self.status = Some("Replies in a thread need linearctl 0.2.0 or later.".into());
+                    return Some(Vec::new());
+                }
+                let threads = self.thread_items();
+                match threads.as_slice() {
+                    [] => {
+                        self.notice = Some("No comments to reply to; c writes one.".into());
+                        Some(Vec::new())
+                    }
+                    [only] => {
+                        let (parent, to) = (only.value.clone(), only.hint.clone());
+                        Some(vec![Effect::Edit {
+                            purpose: EditFor::Reply { issue, parent, to },
+                            text: String::new(),
+                        }])
+                    }
+                    _ => Some(self.open_picker(Target::Reply { issue })),
+                }
+            }
             KeyCode::Char('E') if self.focus == Focus::Detail => {
                 let d = self.detail.as_ref()?.issue.as_ref()?;
                 let issue = d.row.identifier.clone();
@@ -451,6 +511,26 @@ impl App {
             }
             _ => None,
         }
+    }
+
+    /// The open issue's threads: the author and first line of each root
+    /// comment, its id as the value.
+    fn thread_items(&self) -> Vec<PickItem> {
+        let Some(issue) = self.detail.as_ref().and_then(|d| d.issue.as_ref()) else { return Vec::new() };
+        let roots = issue.threads().into_iter().filter(|(_, reply)| !reply).map(|(c, _)| c);
+        roots
+            .map(|c| {
+                let who = c.user.as_ref().map_or("Someone", |u| u.name.as_str()).to_string();
+                let first: String = c.body.lines().next().unwrap_or_default().chars().take(50).collect();
+                PickItem {
+                    label: format!("{who}: {first}"),
+                    value: c.id.clone(),
+                    color: None,
+                    hint: who,
+                    chosen: false,
+                }
+            })
+            .collect()
     }
 
     fn open_form(&mut self) -> Vec<Effect> {
@@ -538,6 +618,11 @@ impl App {
         let current = p.visible().get(p.cursor).map(|(_, i)| (*i).clone());
         let chosen: Vec<String> = p.items.iter().filter(|i| i.chosen).map(|i| i.value.clone()).collect();
         match p.target {
+            Target::Reply { issue } => {
+                let Some(item) = current else { return Vec::new() };
+                let purpose = EditFor::Reply { issue, parent: item.value, to: item.hint };
+                vec![Effect::Edit { purpose, text: String::new() }]
+            }
             Target::Issue { issue, field: Field::Labels } => {
                 let have: Vec<String> = issue.labels.iter().map(|l| l.name.clone()).collect();
                 let add: Vec<&String> = chosen.iter().filter(|c| !have.contains(c)).collect();
@@ -716,6 +801,23 @@ impl App {
                 let text = Some(Text { flag: "body", text: body });
                 vec![Effect::Run(Request::Write { purpose: Purpose::Comment { issue }, argv, text, summary })]
             }
+            EditFor::Reply { issue, parent, to } => {
+                let body = text.trim().to_string();
+                if body.is_empty() {
+                    self.notice = Some("Empty reply discarded.".into());
+                    return Vec::new();
+                }
+                let id = uuid::Uuid::new_v4().to_string();
+                let argv = ctl::reply_argv(&issue, &id, &parent, Mode::DryRun);
+                let summary = preview(&body, 6);
+                let text = Some(Text { flag: "body", text: body });
+                vec![Effect::Run(Request::Write {
+                    purpose: Purpose::Reply { issue, to },
+                    argv,
+                    text,
+                    summary,
+                })]
+            }
             EditFor::Description { issue, original, updated_at } => {
                 let new = text.trim_end().to_string();
                 if new == original.trim_end() {
@@ -787,6 +889,7 @@ impl App {
             }
             let title = match &purpose {
                 Purpose::Comment { issue } => format!("Comment on {issue}"),
+                Purpose::Reply { issue, to } => format!("Reply to {to} on {issue}"),
                 Purpose::Description { issue } => format!("New description for {issue}"),
                 Purpose::Archive { issue } => format!("Archive {issue}?"),
                 Purpose::Create => "Create this issue?".into(),
@@ -811,7 +914,7 @@ impl App {
                 self.notice = Some(format!("{issue}: description saved"));
                 self.refresh_detail(&issue)
             }
-            Purpose::Comment { issue } => {
+            Purpose::Comment { issue } | Purpose::Reply { issue, .. } => {
                 if let Some(c) = r.comment {
                     let open = self.detail.as_mut().filter(|d| d.id == issue).and_then(|d| d.issue.as_mut());
                     if let Some(i) = open
@@ -1128,6 +1231,54 @@ mod tests {
         assert_eq!(shown.comments.len(), 5);
         assert!(shown.comments[4].body.starts_with("Deployed to staging."));
         assert_eq!(w.show("ENG-142").comments.len(), 5, "written");
+    }
+
+    #[test]
+    fn replying_in_a_thread() {
+        let mut w = world("reply");
+        w.app.can_reply = true;
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('R'));
+        let labels: Vec<&str> = w.picker().items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels.len(), 3, "three threads: {labels:?}");
+        assert!(labels[1].starts_with("Daniel Okafor: Careful with case too"));
+        w.chars("dan");
+        w.key(KeyCode::Enter);
+        assert!(matches!(&w.edits.last().unwrap().0, EditFor::Reply { to, .. } if to == "Daniel Okafor"));
+        w.edited(Some("Good catch, done in #2841."));
+        let c = w.confirm();
+        assert_eq!(c.title, "Reply to Daniel Okafor on ENG-142");
+        assert!(c.command.contains(" --parent "), "{}", c.command);
+        w.key(KeyCode::Char('y'));
+        assert_eq!(w.app.notice.as_deref(), Some("Comment added to ENG-142"));
+        let shown = w.app.detail.as_ref().unwrap().issue.as_ref().unwrap();
+        let order: Vec<(&str, bool)> =
+            shown.threads().iter().map(|(c, r)| (c.body.lines().next().unwrap_or(""), *r)).collect();
+        assert_eq!(order[3], ("Good catch, done in #2841.", true), "under Daniel's comment: {order:?}");
+        // An empty reply is dropped.
+        w.key(KeyCode::Char('R'));
+        w.key(KeyCode::Enter);
+        w.edited(Some(""));
+        assert_eq!(w.app.notice.as_deref(), Some("Empty reply discarded."));
+    }
+
+    #[test]
+    fn replying_with_one_thread_or_none() {
+        let mut w = world("reply-one");
+        w.app.can_reply = true;
+        w.key(KeyCode::Char('2')); // Active: ENG-158 first, one comment
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('R'));
+        assert!(w.app.overlay.is_none(), "no picker for one thread");
+        assert!(matches!(&w.edits.last().unwrap().0, EditFor::Reply { to, .. } if to == "Jonas Berg"));
+        w.key(KeyCode::Esc);
+        w.key(KeyCode::Char('3')); // Triage: ENG-157, no comments
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('R'));
+        assert_eq!(w.app.notice.as_deref(), Some("No comments to reply to; c writes one."));
+        w.app.can_reply = false;
+        w.key(KeyCode::Char('R'));
+        assert_eq!(w.app.status.as_deref(), Some("Replies in a thread need linearctl 0.2.0 or later."));
     }
 
     #[test]

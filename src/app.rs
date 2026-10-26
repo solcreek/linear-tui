@@ -126,6 +126,11 @@ pub fn issue_ref(arg: &str) -> Option<IssueRef> {
     ok.then(|| IssueRef { id: id.to_ascii_uppercase(), workspace })
 }
 
+/// Whether this linearctl can reply in a thread (`comment create --parent`).
+pub fn can_reply(d: &crate::contract::Describe) -> bool {
+    d.check_argv(&ctl::reply_argv("ENG-1", "id", "parent", ctl::Mode::DryRun)).is_empty()
+}
+
 /// What `describe` lacks for these views; empty when linearctl will do.
 pub fn missing(d: &crate::contract::Describe, views: &[View]) -> Vec<String> {
     required_argvs(views).iter().flat_map(|a| d.check_argv(a)).collect()
@@ -367,6 +372,8 @@ pub struct App {
     pub can_check_updated: bool,
     /// Whether linearctl has `watch` (0.2.0).
     pub can_watch: bool,
+    /// Whether linearctl has `comment create --parent` (0.2.0).
+    pub can_reply: bool,
     /// The watch for the view on screen.
     pub live: Option<Live>,
     /// An issue from a URL, to open once `auth status` shows its workspace.
@@ -412,6 +419,7 @@ impl App {
             drafts: HashMap::new(),
             can_check_updated: false,
             can_watch: false,
+            can_reply: false,
             live: None,
             pending_open: None,
             watch_generation: 0,
