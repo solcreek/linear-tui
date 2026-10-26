@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-10-26
+
+Reserves the npm name; nothing to run yet.
+
 ### Added
 
 - Design document (`docs/design.md`): screens and keybindings, the linearctl
@@ -21,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fake-linearctl`: answers linearctl's read commands from the demo workspace
   in linearctl's JSON shapes and exit codes, and refuses writes. Used by the
   demo and by tests until linearctl has a demo mode.
+- npm package `linear-tui` 0.0.1: a placeholder whose command says the TUI is
+  not released yet and exits 1.
 - CI on Linux and macOS: rustfmt, clippy, tests, MSRV 1.88, 90% line coverage.
 
-[Unreleased]: https://github.com/solcreek/linear-tui/commits/main
+[Unreleased]: https://github.com/solcreek/linear-tui/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/solcreek/linear-tui/releases/tag/v0.0.1
