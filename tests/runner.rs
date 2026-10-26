@@ -122,3 +122,30 @@ fn a_missing_binary() {
     let err = auth(&Runner::new("/nonexistent/linearctl")).unwrap_err();
     assert!(matches!(err, Failure::Spawn(m) if m.starts_with("/nonexistent/linearctl")));
 }
+
+#[test]
+fn requests_become_messages() {
+    use linear_tui::app::{App, Effect, Msg, default_views};
+    let r = runner(None);
+    let mut app = App::new(default_views(), chrono::Utc::now());
+    for fx in app.start() {
+        let Effect::Run(req) = fx else { panic!() };
+        let msg = req.run(&r);
+        assert!(
+            matches!(&msg, Msg::Listed { result: Ok(_), .. } | Msg::Authed(Ok(_))),
+            "{msg:?}"
+        );
+        app.update(msg);
+    }
+    let fx = app.update(Msg::Key(crossterm::event::KeyEvent::from(
+        crossterm::event::KeyCode::Enter,
+    )));
+    let Effect::Run(req) = fx.into_iter().next().unwrap() else {
+        panic!()
+    };
+    let Msg::Shown { id, result } = req.run(&r) else {
+        panic!()
+    };
+    assert_eq!(id, "ENG-142");
+    assert_eq!(result.unwrap().comments.len(), 4);
+}

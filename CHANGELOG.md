@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `linear-tui`, read-only: the issue list with four views (My issues, Active,
+  Triage, Recent), paging, a local filter, and the issue detail beside the
+  list on wide terminals (Markdown description, sub-issues, relations,
+  attachments, threaded comments). `--demo` browses a fictional workspace
+  with no Linear account.
+- On start, linear-tui checks `linearctl describe` for every command and flag
+  it will use, and refuses to start with a clear message if one is missing.
+
 ## [0.0.1] - 2026-10-26
 
 Reserves the npm name; nothing to run yet.

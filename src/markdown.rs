@@ -260,7 +260,7 @@ impl Renderer {
                     } else {
                         alt.clone()
                     };
-                    spans.push(Span::styled(format!("▣ {label}"), theme::dim()));
+                    spans.push(Span::styled(format!("□ {label}"), theme::dim()));
                     self.out.images.push(ImageRef {
                         line: self.out.lines.len(),
                         url,
@@ -727,7 +727,7 @@ mod tests {
             "text\n\n![shot.png](https://uploads.linear.app/a/b)\n\n![](https://x/y.png)",
             40,
         );
-        assert_eq!(text(&r), ["text", "", "▣ shot.png", "", "▣ image"]);
+        assert_eq!(text(&r), ["text", "", "□ shot.png", "", "□ image"]);
         assert_eq!(
             r.images[0],
             ImageRef {

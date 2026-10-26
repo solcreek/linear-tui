@@ -189,7 +189,7 @@ Calls:
  Comments (5)
    Jonas Berg · 2d ago
      …
-     ↳ reply …
+     ↪ reply …
 ```
 
 | key | action |
@@ -387,7 +387,7 @@ Verified on 2026-10-26 against a real upload:
 - An image is drawn only when its whole box is in the viewport; a partly visible
   one shows its placeholder frame. `v` shows one full screen. Cropping partly
   visible images is a later improvement.
-- Non-image uploads render as `⎘ screen-recording.mov` links: `d` downloads one to
+- Non-image uploads render as `↗ screen-recording.mov` links: `d` downloads one to
   `~/Downloads` (keyed `file download` with that directory as working directory),
   `Enter` opens it in the browser.
 
