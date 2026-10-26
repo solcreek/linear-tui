@@ -67,6 +67,27 @@ pub fn render(markdown: &str, width: u16) -> Rendered {
     r.out
 }
 
+/// The images in a document: (URL, alt text), in order.
+pub fn image_urls(markdown: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut current: Option<(String, String)> = None;
+    for e in Parser::new_ext(markdown, Options::ENABLE_TABLES) {
+        match e {
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                current = Some((dest_url.to_string(), String::new()))
+            }
+            Event::Text(t) | Event::Code(t) => {
+                if let Some((_, alt)) = &mut current {
+                    alt.push_str(&t);
+                }
+            }
+            Event::End(TagEnd::Image) => out.extend(current.take()),
+            _ => {}
+        }
+    }
+    out
+}
+
 #[derive(Default)]
 struct Table {
     rows: Vec<Vec<String>>,
@@ -737,6 +758,18 @@ mod tests {
             }
         );
         assert_eq!(r.images[1].line, 4);
+    }
+
+    #[test]
+    fn lists_image_urls() {
+        let md = "a ![one](https://x/1.png) b\n\n![`two`](https://x/2.png)\n\n[not](https://x/3)";
+        assert_eq!(
+            image_urls(md),
+            [
+                ("https://x/1.png".to_string(), "one".to_string()),
+                ("https://x/2.png".to_string(), "two".to_string())
+            ]
+        );
     }
 
     #[test]

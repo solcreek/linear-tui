@@ -625,7 +625,16 @@ impl Workspace {
         let Some(i) = self.issue(id) else {
             return Ok(Self::not_found(id));
         };
-        let d = self.detail(i, comments);
+        let mut d = self.detail(i, comments);
+        let secs: u64 = match args.one("signed-urls") {
+            Some(n) => n
+                .parse()
+                .map_err(|_| format!("--signed-urls: not a number: {n}"))?,
+            None => 0,
+        };
+        if secs > 0 {
+            sign_all(&mut d, secs);
+        }
         let d = args.one("fields").map_or(d.clone(), |f| pick(&d, f));
         Ok(Output::ok(json!({"issue": d})))
     }
@@ -759,6 +768,36 @@ impl Workspace {
             args.one("cursor"),
         ))
     }
+}
+
+/// Sign every upload URL in the issue's text, as `--signed-urls` does: the
+/// demo's signature is a marker, not a real JWT.
+fn sign_all(issue: &mut Value, secs: u64) {
+    let sign = |v: &mut Value| {
+        if let Some(t) = v.as_str() {
+            *v = json!(sign_uploads(t, secs));
+        }
+    };
+    sign(&mut issue["description"]);
+    if let Some(comments) = issue["comments"].as_array_mut() {
+        comments.iter_mut().for_each(|c| sign(&mut c["body"]));
+    }
+}
+
+fn sign_uploads(text: &str, secs: u64) -> String {
+    const UPLOADS: &str = "https://uploads.linear.app/";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(UPLOADS) {
+        let url_len = rest[at..]
+            .find(|c: char| c == ')' || c == '"' || c == '>' || c.is_whitespace())
+            .unwrap_or(rest.len() - at);
+        out.push_str(&rest[..at + url_len]);
+        out.push_str(&format!("?signature=demo-{secs}"));
+        rest = &rest[at + url_len..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// `--updated-since`: a date, an RFC 3339 time, `7d` or `24h`.
@@ -1139,6 +1178,34 @@ mod tests {
         let parts: Vec<usize> = u.split('-').map(str::len).collect();
         assert_eq!(parts, [8, 4, 4, 4, 12]);
         assert_eq!(&u[14..15], "4");
+    }
+
+    #[test]
+    fn signed_urls() {
+        let plain = json_of("issue show ENG-142 --json");
+        assert!(
+            plain["issue"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("checkout-error.png)")
+        );
+        let signed = json_of("issue show ENG-142 --signed-urls 300 --json");
+        assert!(
+            signed["issue"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("checkout-error.png?signature=demo-300)")
+        );
+        assert_eq!(go("issue show ENG-142 --signed-urls soon --json").code, 2);
+        assert_eq!(
+            sign_uploads("a https://uploads.linear.app/x b", 5),
+            "a https://uploads.linear.app/x?signature=demo-5 b"
+        );
+        assert_eq!(
+            sign_uploads("https://uploads.linear.app/y", 5),
+            "https://uploads.linear.app/y?signature=demo-5"
+        );
+        assert_eq!(sign_uploads("none", 5), "none");
     }
 
     #[test]
