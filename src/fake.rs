@@ -184,6 +184,7 @@ pub fn run_in(argv: &[String], now: DateTime<Utc>, state: Option<&std::path::Pat
         ["label", "list"] => list(&args, &["team"], || ws.labels()),
         ["project", "list"] => list(&args, &["team", "status"], || ws.projects(args.all("status"))),
         ["cycle", "list"] => list(&args, &["team"], || ws.cycles()),
+        ["view", "list"] => list(&args, &["team"], || ws.views()),
         ["issue", "list"] => ws.issue_list(&args),
         ["issue", "show" | "view", id] => ws.issue_show(id, &args),
         ["comment", "list", id] => ws.comment_list(id, &args),
@@ -460,6 +461,21 @@ impl Workspace {
             .collect()
     }
 
+    /// Saved views: in the seed, a name and the issue list flags it stands for.
+    fn views(&self) -> Vec<Value> {
+        let views = self.seed["views"].as_array().into_iter().flatten();
+        views
+            .map(|v| {
+                let name = v["name"].as_str().unwrap_or_default();
+                json!({
+                    "id": uuid(&format!("view {name}")), "name": name, "description": null,
+                    "slugId": slug(name), "modelName": "Issue", "shared": v["shared"],
+                    "team": null, "owner": self.user_ref(&v["owner"]), "updatedAt": self.seed["anchor"],
+                })
+            })
+            .collect()
+    }
+
     fn cycles(&self) -> Vec<Value> {
         let cycles = self.seed["cycles"].as_array().into_iter().flatten();
         let active = self.current_cycle();
@@ -634,7 +650,33 @@ impl Workspace {
     }
 
     fn issue_list(&self, args: &Args) -> Result<Output, String> {
+        // --view: the view's own filter, then the other flags on top.
+        if let Some(v) = args.one("view") {
+            let views = self.seed["views"].as_array().cloned().unwrap_or_default();
+            let found = views
+                .iter()
+                .find(|x| x["name"] == v || uuid(&format!("view {}", x["name"].as_str().unwrap_or(""))) == v);
+            let Some(view) = found else {
+                return Ok(Output::error(1, &format!("not found: view {v:?}"), false));
+            };
+            let mut argv: Vec<String> = view["filter"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|a| a.as_str().map(str::to_string))
+                .collect();
+            for (name, values) in &args.flags {
+                if name == "view" || name == "json" {
+                    continue;
+                }
+                for value in values {
+                    argv.extend([format!("--{name}"), value.clone()]);
+                }
+            }
+            return self.issue_list(&Args::parse(&argv)?);
+        }
         args.only(&[
+            "view",
             "priority",
             "team",
             "assignee",
@@ -939,6 +981,25 @@ mod tests {
         assert_eq!(ids("issue list --updated-since 30d --json").len(), 17);
         assert_eq!(ids("issue list --priority urgent --json"), ["ENG-158", "ENG-142"]);
         assert_eq!(ids("issue list --priority 0 --priority 4 --json").len(), 4);
+    }
+
+    #[test]
+    fn saved_views() {
+        let views = json_of("view list --json");
+        assert_eq!(views["shown"], 2);
+        assert_eq!(views["items"][0]["name"], "Checkout bugs");
+        assert_eq!(views["items"][0]["modelName"], "Issue");
+        assert_eq!(views["items"][0]["owner"]["name"], "Maya Patel");
+        let ids = |cmd: &str| idents(&json_of(cmd));
+        assert_eq!(ids("issue list --view 'Checkout bugs' --json"), ["ENG-158", "ENG-142", "ENG-143", "ENG-144"]);
+        let id = views["items"][1]["id"].as_str().unwrap().to_string();
+        assert_eq!(ids(&format!("issue list --view {id} --json")).len(), 2);
+        assert_eq!(
+            ids("issue list --view 'Checkout bugs' --assignee me --json"),
+            ["ENG-142", "ENG-143"],
+            "flags stack on top"
+        );
+        assert_eq!(go("issue list --view Nope --json").code, 1);
     }
 
     #[test]

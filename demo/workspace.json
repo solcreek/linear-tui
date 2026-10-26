@@ -41,6 +41,10 @@
     { "number": 24, "startsAt": "2026-10-19T00:00:00.000Z", "endsAt": "2026-10-26T23:59:59.000Z" },
     { "number": 25, "startsAt": "2026-10-27T00:00:00.000Z", "endsAt": "2026-11-02T23:59:59.000Z" }
   ],
+  "views": [
+    { "name": "Checkout bugs", "owner": "maya@northwind.example", "shared": true, "filter": ["--project", "Checkout v2", "--label", "Bug"] },
+    { "name": "Mobile 3.0 open", "owner": "sofia@northwind.example", "shared": true, "filter": ["--project", "Mobile 3.0", "--state-type", "unstarted", "--state-type", "started"] }
+  ],
   "issues": [
     {
       "identifier": "ENG-158",
