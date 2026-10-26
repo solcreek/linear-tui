@@ -27,6 +27,12 @@ pub struct Text {
 /// What a write is for, so its result lands in the right place.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Purpose {
+    /// The edit form's changes; `undo` and `undo_text` put them back.
+    Edit {
+        issue: String,
+        undo: Option<Vec<(String, String)>>,
+        undo_text: Option<String>,
+    },
     /// A quick edit; `what` is for the notice ("state → Done").
     Quick {
         issue: String,
@@ -178,6 +184,8 @@ pub struct Form {
     pub description: String,
     /// Index into [`FORM_FIELDS`].
     pub field: usize,
+    /// When it edits an issue (`e`) rather than making one.
+    pub editing: Option<Box<super::edit::Editing>>,
 }
 
 /// Lookup lists, loaded when a picker first needs them.
@@ -478,6 +486,7 @@ impl App {
         }
         match k.code {
             KeyCode::Char('u') => Some(self.start_undo()),
+            KeyCode::Char('e') => Some(self.open_edit()),
             KeyCode::Char('A') => {
                 let issue = self.target_issue()?;
                 let back = issue.assignee.as_ref().map_or("none".to_string(), |a| a.email.clone());
@@ -732,10 +741,18 @@ impl App {
         let field = FORM_FIELDS[form.field];
         match k.code {
             KeyCode::Esc => {
+                let editing = form.editing.is_some();
                 self.form = None;
-                self.notice = Some("New issue discarded.".into());
+                self.notice = Some(if editing { "Edit discarded." } else { "New issue discarded." }.into());
+            }
+            KeyCode::Char('s') if ctrl && form.editing.is_some() => {
+                let f = form.clone();
+                return self.submit_edit(f);
             }
             KeyCode::Char('s') if ctrl => return self.submit_form(),
+            KeyCode::Enter if field == "Team" && form.editing.is_some() => {
+                self.status = Some("An issue's team is not changed here.".into());
+            }
             KeyCode::Tab | KeyCode::Down => form.field = (form.field + 1) % FORM_FIELDS.len(),
             KeyCode::BackTab | KeyCode::Up => {
                 form.field = (form.field + FORM_FIELDS.len() - 1) % FORM_FIELDS.len()
@@ -936,6 +953,7 @@ impl App {
                 Purpose::Description { issue, .. } => format!("New description for {issue}"),
                 Purpose::Archive { issue } => format!("Archive {issue}?"),
                 Purpose::Create => "Create this issue?".into(),
+                Purpose::Edit { issue, .. } => format!("Save changes to {issue}?"),
                 Purpose::Quick { issue, .. } => issue.clone(),
                 Purpose::Undo { label, .. } => format!("Undo {label}"),
             };
@@ -1008,6 +1026,7 @@ impl App {
                 self.notice = Some(format!("Archived {issue}"));
                 Vec::new()
             }
+            Purpose::Edit { issue, undo, undo_text } => self.on_edited_issue(issue, undo, undo_text, r.issue),
             Purpose::Create => {
                 self.form = None;
                 let Some(row) = r.issue else { return Vec::new() };

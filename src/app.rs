@@ -10,10 +10,12 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::ctl::{self, Failure, Lookup};
 use crate::model::{AuthStatus, IssueDetail, IssueRow, Named, Page, WriteResult};
 
+mod edit;
 mod filter;
 mod live;
 mod undo;
 mod write;
+pub use edit::Editing;
 pub use filter::{FilterPanel, SLOTS, Slot};
 pub use live::{Live, can_watch};
 pub use undo::{Undo, UndoStep};
@@ -381,6 +383,8 @@ pub struct App {
     pub can_reply: bool,
     /// What `u` reverts: the last write, when it can be.
     pub undo: Option<Undo>,
+    /// The issue whose edit form opens once it has loaded.
+    pending_edit: Option<String>,
     /// The filter panel, while open.
     pub filters: Option<FilterPanel>,
     /// Filters applied from the panel: shown instead of the view.
@@ -439,6 +443,7 @@ impl App {
             describe: None,
             config: None,
             filters: None,
+            pending_edit: None,
             filtered: None,
             live: None,
             pending_open: None,
@@ -661,11 +666,16 @@ impl App {
                 match result {
                     Ok(issue) => {
                         let issue = *issue;
-                        self.cache.insert(id, issue.clone());
+                        self.cache.insert(id.clone(), issue.clone());
                         if let Some(d) = current {
                             d.issue = Some(issue);
                             d.error = None;
-                            return self.image_effects();
+                            let mut fx = self.image_effects();
+                            if self.pending_edit.as_deref() == Some(id.as_str()) {
+                                self.pending_edit = None;
+                                fx.extend(self.open_edit());
+                            }
+                            return fx;
                         }
                     }
                     Err(f) => {

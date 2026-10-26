@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `e` edits an issue's fields in the form: title, status, priority,
+  assignee, labels, project and description, sent as one `issue update` of
+  what changed (with `--if-updated-at` where linearctl has it), confirmed
+  first; `u` puts them back. From the list, `e` opens the issue and then the
+  form. Clearing a project needs linearctl 0.6.0.
 - `f` opens the filter panel: team, assignee, status type, status, labels
   (all, any, none), project, cycle, priority, updated since and sort, each set
   through a picker, with the `linearctl issue list` command it makes. `ctrl-a`

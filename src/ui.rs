@@ -314,12 +314,20 @@ fn render_form(form: &Form, f: &mut Frame, area: Rect) {
     }
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
-        "  tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard",
+        if form.editing.is_some() {
+            "  tab/↑↓ field · enter pick or edit · ctrl-s save · esc discard"
+        } else {
+            "  tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard"
+        },
         dim(),
     )));
     let rect = centered(area, 100, u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2));
     f.render_widget(Clear, rect);
-    let block = Block::bordered().title(" New issue ").border_style(Style::new().fg(ACCENT));
+    let title = match &form.editing {
+        Some(e) => format!(" Edit {} ", e.issue),
+        None => " New issue ".to_string(),
+    };
+    let block = Block::bordered().title(title).border_style(Style::new().fg(ACCENT));
     f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
@@ -394,6 +402,9 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
             }
             (_, Some(Overlay::Pick(_)), _) => "type to filter · ↑↓ move · enter choose · esc cancel",
             (_, Some(Overlay::Confirm(_)), _) => "y send · n cancel",
+            (_, None, Some(f)) if f.editing.is_some() => {
+                "tab/↑↓ field · enter pick or edit · ctrl-s save · esc discard"
+            }
             (_, None, Some(_)) => "tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard",
             (_, None, None) if app.filters.is_some() => {
                 "↑↓ row · enter pick · d clear · ctrl-a apply · ctrl-s save · esc close"
@@ -721,6 +732,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ("/", "filter; enter searches all"),
         ("n", "load more"),
         ("c", "new issue / comment (detail)"),
+        ("e", "edit the issue's fields"),
         ("E", "edit description (detail)"),
         ("R", "reply in a thread (detail)"),
         ("s a p", "state / assignee / priority"),
