@@ -12,7 +12,7 @@ API key and never calls api.linear.app: every read and write is a
 [`linearctl`](https://github.com/solcreek/linear-cli) `--json` call, so anything
 a person does here an agent can do with the CLI.
 
-![linear-tui showing the issue list beside an open issue: its Markdown description with steps to reproduce, a JSON code block, a checklist and a quote, then sub-issues, relations and attachments](docs/images/detail.png)
+![linear-tui showing the issue list beside an open issue: steps to reproduce, a JSON code block, the uploaded screenshot of the checkout error drawn inline, a checklist, a quote and sub-issues](docs/images/detail.png)
 
 <sub>The demo workspace (`--demo`): Northwind, its people and its issues are fictional.
 Rendered with [termshot](https://github.com/momiji-rs/termshot) by
@@ -21,8 +21,9 @@ Rendered with [termshot](https://github.com/momiji-rs/termshot) by
 ## Status
 
 Early and read-only: the issue list with views, paging and a filter, and the
-issue detail with Markdown, sub-issues, relations, attachments and threaded
-comments. Images, search, and writes (create, edit, comment) come next; see
+issue detail with Markdown, inline images (kitty, Sixel, iTerm2 or half
+blocks), sub-issues, relations, attachments and threaded comments. Search and
+writes (create, edit, comment) come next; see
 [docs/design.md](docs/design.md) for the whole plan. The npm package
 `linear-tui` is a name placeholder until the first release.
 
@@ -65,5 +66,5 @@ With Homebrew's Rust (no rustup `llvm-tools`), point cargo-llvm-cov at the
 matching LLVM: `LLVM_COV=$(brew --prefix llvm@22)/bin/llvm-cov`
 `LLVM_PROFDATA=$(brew --prefix llvm@22)/bin/llvm-profdata`.
 
-Screenshots: `scripts/screenshots.sh` drives `--demo` in tmux and renders the
-panes with termshot (`TERMSHOT=/path/to/termshot` if it is not on `PATH`).
+Screenshots: `scripts/screenshots.sh` drives `--demo` in tmux, records what it
+writes (kitty graphics included) and renders that with termshot (`TERMSHOT=/path/to/termshot` if it is not on `PATH`).
