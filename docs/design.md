@@ -57,6 +57,10 @@ Modules:
 ### Talking to linearctl
 
 - Binary: `$LINEARCTL`, else `linearctl` in `config.toml`, else `PATH`.
+- `--demo`: the same linearctl with `LINEARCTL_DEMO=1`, which answers from a
+  built-in fictional workspace (seeded from `demo/workspace.json`) with no key
+  and no network. Until linearctl ships it, `--demo` runs `fake-linearctl`, which
+  serves the same seed; afterwards the fake stays only for fault injection.
 - On start, run `linearctl describe --json` (local, ~5 ms, no request). Check that
   every command and flag the TUI builds exists — the same check `cargo test` runs on
   this doc — and refuse to start with one clear message if not. The same result
@@ -311,6 +315,22 @@ Refresh policy — no tight polling:
   watcher exits. linear-cli reports (2026-10-26) that Linear's GraphQL
   subscriptions accept a personal API key, events arriving 0.07–4.6 s after a
   change, so `watch` will push rather than poll where it can.
+- The watcher (linear-cli main `ac99981`, unreleased) takes the view's
+  `issue list` filters plus `--fields` and prints one JSON object a line, keyed
+  by `event`:
+  - `ready {mode, since, known, everything}`: up to date from `since`;
+  - `upsert {issue}`: a list row, merged by `id`; if it is the open issue, the
+    detail re-runs `issue show` (watch does not report comments);
+  - `remove {id, identifier, reason}`: drop the row; a remove for an id the TUI
+    never had is ignored (`everything: true` sends those);
+  - `heartbeat {at, mode, rateLimit}`: liveness, and the budget for the status
+    bar; no line for 2 × `--heartbeat` means the watcher is restarted;
+  - `gap {from, to, reason, mode, downFor}`: linearctl replays the gap itself;
+    the status bar notes a fallback to polling.
+  It ends with the usual exit codes and a last `{error}` line (5, 6 with
+  `retryAt`, 1); the TUI then falls back to the timers and retries the watcher.
+  Cost: 1–2 requests at start for a filtered view, then at most one check
+  every 2 s while issues change, plus 2 per reconcile (300 s).
 - Details are cached for 2 min; nothing is prefetched.
 - Lookups: once per day per team.
 
@@ -466,7 +486,8 @@ Ordered by how much the TUI needs it.
    removals without a full reload. One watcher per key also beats each consumer
    polling. *Accepted*: linear-cli will build it on Linear's (undocumented)
    GraphQL subscriptions with a polling fallback, re-checking the filter for each
-   changed issue to emit removals; the NDJSON shape comes before the build.
+   changed issue to emit removals. *Landed* on linear-cli main (`ac99981`); the
+   shape is under [Request budget](#request-budget).
 2. **`linearctl serve --stdio`**: one long-lived process taking NDJSON
    `{"id":…,"argv":[…]}` and answering `{"id":…,"exit":N,"result":{…}}` with the
    same JSON as the CLI. Saves TCP + TLS (~40 ms of each ~150 ms call), the
