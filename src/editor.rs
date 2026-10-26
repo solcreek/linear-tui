@@ -63,10 +63,11 @@ mod tests {
 
     #[test]
     fn the_file_is_private_and_removed() {
-        // The "editor" replaces the text with the file's mode (BSD or GNU stat).
-        let script = "m=$(stat -f %Lp \"$0\" 2>/dev/null || stat -c %a \"$0\"); printf %s \"$m\" > \"$0\"";
+        // The "editor" replaces the text with the file's permission bits, as
+        // `ls -l` prints them on macOS and Linux alike.
+        let script = "m=$(ls -l \"$0\" | cut -c1-10); printf %s \"$m\" > \"$0\"";
         let editor = format!("sh -c {}", shlex::try_quote(script).unwrap());
-        assert_eq!(edit_with(&editor, "x").as_deref(), Some("600"));
+        assert_eq!(edit_with(&editor, "x").as_deref(), Some("-rw-------"));
         let seen = edit_with("sh -c 'printf %s \"$0\" > \"$0\"'", "").unwrap();
         assert!(seen.contains("linear-tui-"), "{seen}");
         assert!(!std::path::Path::new(&seen).exists(), "removed after");
