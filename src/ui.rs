@@ -11,7 +11,7 @@ use ratatui_image::picker::Picker;
 use ratatui_image::{FilterType, FontSize, Resize, StatefulImage};
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Focus, ImageSlot};
+use crate::app::{App, Confirm, FORM_FIELDS, Focus, Form, ImageSlot, Overlay, PickList};
 use crate::markdown;
 use crate::model::{IssueDetail, IssueRow, Label, State, User};
 
@@ -135,9 +135,188 @@ pub fn render(app: &mut App, f: &mut Frame) {
     } else {
         render_list(app, f, body, false);
     }
+    if let Some(form) = &app.form {
+        render_form(form, f, body);
+    }
+    match &app.overlay {
+        Some(Overlay::Pick(p)) => render_picker(p, f, body),
+        Some(Overlay::Confirm(c)) => render_confirm(c, f, body),
+        None => {}
+    }
     if app.help {
         render_help(f, body);
     }
+}
+
+/// A box centred in `area`, at most `w` x `h`.
+fn centered(area: Rect, w: u16, h: u16) -> Rect {
+    let (w, h) = (w.min(area.width), h.min(area.height));
+    Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    }
+}
+
+fn render_picker(p: &PickList, f: &mut Frame, area: Rect) {
+    let items = p.visible();
+    let rows = u16::try_from(items.len().max(1)).unwrap_or(u16::MAX);
+    let rect = centered(area, 48, rows.saturating_add(4).min(20));
+    let mut lines = vec![Line::from(vec![
+        Span::styled("› ", Style::new().fg(ACCENT)),
+        Span::raw(format!("{}▏", p.query)),
+    ])];
+    if p.waiting.is_some() {
+        lines.push(Line::from(Span::styled("Loading…", dim())));
+    } else if items.is_empty() {
+        lines.push(Line::from(Span::styled("No match.", dim())));
+    }
+    let room = usize::from(rect.height.saturating_sub(3));
+    let first = p.cursor.saturating_sub(room.saturating_sub(1));
+    for (n, (_, item)) in items.iter().enumerate().skip(first).take(room) {
+        let mark = match (p.multi, item.chosen) {
+            (true, true) => "[x] ",
+            (true, false) => "[ ] ",
+            (false, true) => "✓ ",
+            (false, false) => "  ",
+        };
+        let mut spans = vec![Span::styled(mark, Style::new().fg(ACCENT))];
+        if let Some(c) = hex(item.color.as_deref()) {
+            spans.push(Span::styled("● ", Style::new().fg(c)));
+        }
+        spans.push(Span::raw(item.label.clone()));
+        if !item.hint.is_empty() && item.hint != item.label {
+            spans.push(Span::styled(format!("  {}", item.hint), dim()));
+        }
+        let mut line = Line::from(spans);
+        if n == p.cursor {
+            line = line.style(
+                Style::new()
+                    .bg(Color::Rgb(0x2a, 0x2d, 0x3e))
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+        lines.push(line);
+    }
+    let title = format!(" {} ", p.title);
+    f.render_widget(Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::bordered()
+                .title(title)
+                .border_style(Style::new().fg(ACCENT)),
+        ),
+        rect,
+    );
+}
+
+fn render_confirm(c: &Confirm, f: &mut Frame, area: Rect) {
+    let w = 92.min(area.width.saturating_sub(4)).max(20);
+    let mut lines: Vec<Line> = c.lines.iter().map(|l| Line::raw(l.clone())).collect();
+    lines.push(Line::raw(""));
+    for chunk in wrap_plain(&c.command, usize::from(w.saturating_sub(4))) {
+        lines.push(Line::from(Span::styled(chunk, dim())));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(vec![
+        Span::styled("y", Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::raw(" send   "),
+        Span::styled("n", Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::raw(" cancel"),
+    ]));
+    let h = u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2);
+    let rect = centered(area, w, h);
+    f.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .title(format!(" {} ", c.title))
+        .border_style(Style::new().fg(ACCENT));
+    f.render_widget(Paragraph::new(lines).block(block), rect);
+}
+
+/// Break plain text into lines of at most `w` cells.
+fn wrap_plain(s: &str, w: usize) -> Vec<String> {
+    let mut out = vec![String::new()];
+    for word in s.split(' ') {
+        let last = out.last_mut().expect("one line");
+        if !last.is_empty() && last.width() + 1 + word.width() > w {
+            out.push(word.to_string());
+        } else {
+            if !last.is_empty() {
+                last.push(' ');
+            }
+            last.push_str(word);
+        }
+    }
+    out
+}
+
+fn render_form(form: &Form, f: &mut Frame, area: Rect) {
+    let label = |name: &str, i: usize| {
+        let focused = form.field == i;
+        let style = if focused {
+            Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)
+        } else {
+            dim()
+        };
+        Span::styled(format!("{} {name:<13}", if focused { "›" } else { " " }), style)
+    };
+    let value = |v: Option<String>, empty: &str| match v.filter(|v| !v.is_empty()) {
+        Some(v) => Span::raw(v),
+        None => Span::styled(empty.to_string(), dim()),
+    };
+    let priorities = ["No priority", "Urgent", "High", "Medium", "Low"];
+    let mut lines = Vec::new();
+    for (i, name) in FORM_FIELDS.iter().enumerate() {
+        let v = match *name {
+            "Title" => {
+                let cursor = if form.field == i { "▏" } else { "" };
+                Span::styled(
+                    format!("{}{cursor}", form.title),
+                    Style::new().add_modifier(Modifier::BOLD),
+                )
+            }
+            "Team" => value(Some(form.team.clone()), "pick a team"),
+            "Status" => value(form.state.clone(), "the team's default"),
+            "Priority" => value(
+                priorities
+                    .get(usize::try_from(form.priority).unwrap_or(0))
+                    .map(|s| (*s).to_string()),
+                "",
+            ),
+            "Assignee" => value(form.assignee.as_ref().map(|a| a.1.clone()), "unassigned"),
+            "Labels" => value(Some(form.labels.join(", ")), "none"),
+            "Project" => value(form.project.clone(), "none"),
+            _ => value(
+                form.description.lines().next().map(str::to_string),
+                "enter opens $EDITOR",
+            ),
+        };
+        lines.push(Line::from(vec![label(name, i), v]));
+        if *name == "Description" {
+            for l in form.description.lines().skip(1).take(6) {
+                lines.push(Line::from(vec![
+                    Span::raw(" ".repeat(15)),
+                    Span::styled(l.to_string(), dim()),
+                ]));
+            }
+        }
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        "  tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard",
+        dim(),
+    )));
+    let rect = centered(
+        area,
+        100,
+        u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2),
+    );
+    f.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .title(" New issue ")
+        .border_style(Style::new().fg(ACCENT));
+    f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 fn render_header(app: &App, f: &mut Frame, area: Rect) {
@@ -192,6 +371,8 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
         ])
     } else if let Some(s) = &app.status {
         Line::from(Span::styled(format!(" {s}"), Style::new().fg(Color::Red)))
+    } else if let Some(n) = &app.notice {
+        Line::from(Span::styled(format!(" ✓ {n}"), Style::new().fg(Color::Green)))
     } else if !app.filter.is_empty() {
         Line::from(vec![
             slash(),
@@ -199,11 +380,19 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
             Span::styled("   esc clear", dim()),
         ])
     } else {
-        let hints = match app.focus {
-            Focus::List => {
-                "j/k move · enter open · tab view · / filter · r refresh · O browser · ? help · q quit"
+        let hints = match (app.focus, &app.overlay, &app.form) {
+            (_, Some(Overlay::Pick(p)), _) if p.multi => {
+                "type to filter · ↑↓ move · space toggle · enter apply · esc cancel"
             }
-            Focus::Detail => "j/k scroll · ]/[ next/prev · r reload · O browser · esc back · ? help",
+            (_, Some(Overlay::Pick(_)), _) => "type to filter · ↑↓ move · enter choose · esc cancel",
+            (_, Some(Overlay::Confirm(_)), _) => "y send · n cancel",
+            (_, None, Some(_)) => "tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard",
+            (Focus::List, None, None) => {
+                "j/k move · enter open · / filter · c new · s state · a assignee · p priority · ? help · q quit"
+            }
+            (Focus::Detail, None, None) => {
+                "j/k scroll · c comment · E edit description · s/a/p/L edit · ]/[ next · esc back · ? help"
+            }
         };
         Line::from(Span::styled(format!(" {hints}"), dim()))
     };
@@ -572,27 +761,33 @@ fn render_help(f: &mut Frame, area: Rect) {
         ("tab 1-9", "switch view"),
         ("/", "filter; enter searches all"),
         ("n", "load more"),
+        ("c", "new issue / comment (detail)"),
+        ("E", "edit description (detail)"),
+        ("s a p", "state / assignee / priority"),
+        ("L P", "labels / project"),
+        ("A", "assign to me"),
+        ("x", "archive"),
         ("r", "refresh"),
         ("O", "open in browser"),
         ("q", "quit"),
     ];
-    let w = 44.min(area.width);
-    let h = (u16::try_from(keys.len()).unwrap_or(0) + 2).min(area.height);
-    let rect = Rect {
-        x: area.x + (area.width - w) / 2,
-        y: area.y + (area.height - h) / 2,
-        width: w,
-        height: h,
+    // Two columns, so it fits a 24-line terminal.
+    let half = keys.len().div_ceil(2);
+    let cell = |k: Option<&(&str, &str)>| match k {
+        Some((k, what)) => vec![
+            Span::styled(format!(" {k:<14}"), Style::new().fg(ACCENT)),
+            Span::raw(format!("{what:<30}")),
+        ],
+        None => Vec::new(),
     };
-    let lines: Vec<Line> = keys
-        .iter()
-        .map(|(k, what)| {
-            Line::from(vec![
-                Span::styled(format!(" {k:<14}"), Style::new().fg(ACCENT)),
-                Span::raw(*what),
-            ])
+    let lines: Vec<Line> = (0..half)
+        .map(|r| {
+            let mut spans = cell(keys.get(r));
+            spans.extend(cell(keys.get(r + half)));
+            Line::from(spans)
         })
         .collect();
+    let rect = centered(area, 92, u16::try_from(half).unwrap_or(0) + 2);
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(lines).block(Block::bordered().title(" Keys ").border_style(dim())),
@@ -603,7 +798,7 @@ fn render_help(f: &mut Frame, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{App, Effect, Msg, Request, default_views};
+    use crate::app::{App, Effect, Msg, default_views};
     use crate::fake;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::Terminal;
@@ -616,26 +811,10 @@ mod tests {
     fn feed(app: &mut App, fx: Vec<Effect>) {
         for f in fx {
             let Effect::Run(req) = f else { continue };
-            let run = |argv: &[String]| fake::run(argv, now()).stdout;
-            let msg = match req {
-                Request::List {
-                    generation,
-                    argv,
-                    append,
-                } => Msg::Listed {
-                    generation,
-                    append,
-                    result: Ok(serde_json::from_str(&run(&argv)).unwrap()),
-                },
-                Request::Show { id, argv } => {
-                    let s: crate::model::ShowResult = serde_json::from_str(&run(&argv)).unwrap();
-                    Msg::Shown {
-                        id,
-                        result: Ok(Box::new(s.issue)),
-                    }
-                }
-                Request::Auth { argv } => Msg::Authed(Ok(serde_json::from_str(&run(&argv)).unwrap())),
-            };
+            let msg = req.run(&fake::InProcess {
+                now: now(),
+                state: None,
+            });
             let more = app.update(msg);
             feed(app, more);
         }
@@ -951,6 +1130,85 @@ mod tests {
         }
         press(&mut app, KeyCode::Enter);
         assert!(screen(&draw(&mut app, 120, 10)).contains("No issues match \"zebra\"."));
+    }
+
+    #[test]
+    fn a_picker_over_the_list() {
+        let mut app = app_on('1');
+        press(&mut app, KeyCode::Char('s'));
+        let s = screen(&draw(&mut app, 120, 24));
+        assert!(s.contains(" Status "), "{s}");
+        assert!(s.contains("› ▏"));
+        assert!(s.contains("✓ ● In Progress  started"), "{s}");
+        assert!(s.contains("type to filter · ↑↓ move · enter choose"));
+        press(&mut app, KeyCode::Char('z'));
+        press(&mut app, KeyCode::Char('z'));
+        assert!(screen(&draw(&mut app, 120, 24)).contains("No match."));
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('L'));
+        let s = screen(&draw(&mut app, 120, 24));
+        assert!(s.contains("[x] ● Bug") && s.contains("[ ] ● Feature"), "{s}");
+        assert!(s.contains("space toggle · enter apply"));
+        // While the lookup loads.
+        let mut loading = app_on('1');
+        loading.update(Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
+        assert!(screen(&draw(&mut loading, 120, 24)).contains("Loading…"));
+    }
+
+    #[test]
+    fn a_long_picker_scrolls_to_its_cursor() {
+        let mut app = app_on('1');
+        press(&mut app, KeyCode::Char('L'));
+        for _ in 0..6 {
+            press(&mut app, KeyCode::Down);
+        }
+        let s = screen(&draw(&mut app, 120, 9));
+        assert!(s.contains("Customer reported"), "{s}");
+    }
+
+    #[test]
+    fn the_confirm_dialog_shows_the_command() {
+        let mut app = app_on('1');
+        press(&mut app, KeyCode::Char('x'));
+        let s = screen(&draw(&mut app, 120, 24));
+        assert!(s.contains(" Archive ENG-142? "), "{s}");
+        assert!(s.contains("ENG-142  Checkout fails when a coupon code has trailing whitespace"));
+        assert!(s.contains("linearctl issue archive ENG-142 --yes --json"));
+        assert!(s.contains("y send   n cancel"));
+        assert!(s.contains(" y send · n cancel"), "footer");
+        press(&mut app, KeyCode::Char('n'));
+        assert!(screen(&draw(&mut app, 120, 24)).contains(" ✓ Not sent."));
+    }
+
+    #[test]
+    fn the_new_issue_form() {
+        let mut app = app_on('1');
+        press(&mut app, KeyCode::Char('c'));
+        for c in "Gift cards".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        app.form.as_mut().unwrap().description = "Line one\nLine two".into();
+        app.form.as_mut().unwrap().assignee = Some(("me".into(), "Me".into()));
+        let s = screen(&draw(&mut app, 120, 30));
+        assert!(s.contains(" New issue "), "{s}");
+        assert!(s.contains("› Title        Gift cards▏"), "{s}");
+        assert!(s.contains("  Team         ENG"));
+        assert!(s.contains("  Status       the team's default"));
+        assert!(s.contains("  Priority     No priority"));
+        assert!(s.contains("  Assignee     Me"));
+        assert!(s.contains("  Labels       none"));
+        assert!(s.contains("  Description  Line one"));
+        assert!(s.contains("Line two"));
+        assert!(s.contains("ctrl-s create · esc discard"));
+        app.form.as_mut().unwrap().description.clear();
+        app.form.as_mut().unwrap().field = 1;
+        assert!(screen(&draw(&mut app, 120, 30)).contains("enter opens $EDITOR"));
+    }
+
+    #[test]
+    fn plain_wrapping() {
+        assert_eq!(wrap_plain("aa bb cc", 5), ["aa bb", "cc"]);
+        assert_eq!(wrap_plain("", 5), [""]);
     }
 
     #[test]

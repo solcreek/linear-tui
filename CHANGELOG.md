@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Search: `Enter` in the `/` filter searches every issue's title, description
   and comments on the server; `Esc` returns to the view. At most 20 searches a
   minute, leaving part of Linear's 30 for agents on the same key.
+- Editing, from the list or the open issue: `s` state, `p` priority, `a`
+  assignee, `L` labels, `P` project through pickers (type to filter), `A`
+  assigns to you, `x` archives. Each runs linearctl's dry run first; quick
+  edits apply when it changes something.
+- `c` in the list opens a form for a new issue; `c` in an issue writes a
+  comment and `E` its description, both in `$EDITOR`. These show the exact
+  linearctl command before sending. A new issue's id is made when the form
+  opens, so a retry never creates two. With linearctl 0.2.0 a description
+  write is refused if the issue changed since it was loaded, and the edited
+  text is kept as a draft.
 - On start, linear-tui checks `linearctl describe` for every command and flag
   it will use, and refuses to start with a clear message if one is missing.
 

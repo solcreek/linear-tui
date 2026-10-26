@@ -7,8 +7,13 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::ctl::{self, Failure};
-use crate::model::{AuthStatus, IssueDetail, IssueRow, Page};
+use crate::ctl::{self, Failure, Lookup};
+use crate::model::{AuthStatus, IssueDetail, IssueRow, Named, Page, WriteResult};
+
+mod write;
+pub use write::{
+    Confirm, EditFor, FORM_FIELDS, Field, Form, Lookups, Overlay, PickItem, PickList, Purpose, Target, Text,
+};
 
 /// Rows fetched per page.
 pub const PAGE: usize = 50;
@@ -74,7 +79,53 @@ pub fn required_argvs(views: &[View]) -> Vec<Vec<String>> {
         .collect();
     v.push(ctl::show_argv("ENG-1"));
     v.push(ctl::auth_status_argv());
+    for what in [
+        Lookup::Teams,
+        Lookup::States,
+        Lookup::Labels,
+        Lookup::Users,
+        Lookup::Projects,
+    ] {
+        v.push(ctl::lookup_argv(what, "ENG"));
+    }
+    let every = [
+        ("state", "s"),
+        ("priority", "1"),
+        ("assignee", "me"),
+        ("label", "l"),
+        ("project", "p"),
+    ];
+    let mut update = ctl::update_argv("ENG-1", &every, ctl::Mode::DryRun);
+    update.extend([
+        "--add-label".into(),
+        "l".into(),
+        "--remove-label".into(),
+        "l".into(),
+    ]);
+    update.extend(["--description-file".into(), "f".into()]);
+    v.push(update);
+    let mut create = ctl::create_argv(&[("team", "ENG"), ("title", "t")], "id", ctl::Mode::Yes);
+    create.extend(["--description-file".into(), "f".into()]);
+    for (f, x) in every {
+        create.extend([format!("--{f}"), x.into()]);
+    }
+    v.push(create);
+    let mut comment = ctl::comment_argv("ENG-1", "id", ctl::Mode::Yes);
+    comment.extend(["--body-file".into(), "f".into()]);
+    v.push(comment);
+    v.push(ctl::archive_argv("ENG-1", ctl::Mode::Yes));
     v
+}
+
+/// Whether this linearctl can refuse an update when the issue changed
+/// since it was read (`--if-updated-at`, linearctl 0.2.0).
+pub fn can_check_updated(d: &crate::contract::Describe) -> bool {
+    let probe = ctl::update_argv(
+        "ENG-1",
+        &[("if-updated-at", "2026-01-01T00:00:00Z")],
+        ctl::Mode::DryRun,
+    );
+    d.check_argv(&probe).is_empty()
 }
 
 /// What `describe` lacks for these views; empty when linearctl will do.
@@ -98,6 +149,18 @@ pub enum Request {
         id: String,
         argv: Vec<String>,
     },
+    Lookup {
+        what: Lookup,
+        team: String,
+        argv: Vec<String>,
+    },
+    /// A write; `text` goes in a file, `summary` is for the confirm dialog.
+    Write {
+        purpose: Purpose,
+        argv: Vec<String>,
+        text: Option<Text>,
+        summary: Vec<String>,
+    },
     Auth {
         argv: Vec<String>,
     },
@@ -105,7 +168,7 @@ pub enum Request {
 
 impl Request {
     /// Run it (blocking) and turn the answer into the message for `update`.
-    pub fn run(self, runner: &ctl::Runner) -> Msg {
+    pub fn run(self, runner: &impl ctl::Exec) -> Msg {
         match self {
             Request::List {
                 generation,
@@ -114,17 +177,64 @@ impl Request {
             } => Msg::Listed {
                 generation,
                 append,
-                result: runner.run_as(&argv),
+                result: ctl::run_as(runner, &argv),
             },
             Request::Show { id, argv } => Msg::Shown {
                 id,
-                result: runner
-                    .run_as::<crate::model::ShowResult>(&argv)
-                    .map(|s| Box::new(s.issue)),
+                result: ctl::run_as::<crate::model::ShowResult>(runner, &argv).map(|s| Box::new(s.issue)),
             },
-            Request::Auth { argv } => Msg::Authed(runner.run_as(&argv)),
+            Request::Auth { argv } => Msg::Authed(ctl::run_as(runner, &argv)),
+            Request::Lookup { what, team, argv } => Msg::Looked {
+                what,
+                team,
+                result: ctl::run_as(runner, &argv),
+            },
+            Request::Write {
+                purpose,
+                argv,
+                text,
+                summary,
+            } => {
+                let result = run_write(runner, &argv, text.as_ref()).map(Box::new);
+                Msg::Wrote {
+                    purpose,
+                    argv,
+                    text,
+                    summary,
+                    result,
+                }
+            }
         }
     }
+}
+
+/// Run a write, its long text in a private temporary file named by
+/// `--description-file` / `--body-file` (linearctl's serve mode takes no
+/// stdin, and argv shows in `ps`).
+fn run_write(runner: &impl ctl::Exec, argv: &[String], text: Option<&Text>) -> Result<WriteResult, Failure> {
+    let Some(t) = text else {
+        return ctl::run_as(runner, argv);
+    };
+    let path = std::env::temp_dir().join(format!("linear-tui-{}.md", uuid::Uuid::new_v4()));
+    let mut opts = std::fs::File::options();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let written = opts
+        .open(&path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, t.text.as_bytes()));
+    if let Err(e) = written {
+        return Err(Failure::Spawn(format!("cannot write {}: {e}", path.display())));
+    }
+    let mut a = argv.to_vec();
+    let at = a
+        .iter()
+        .position(|w| w == "--dry-run" || w == "--yes")
+        .unwrap_or(a.len());
+    a.splice(at..at, [format!("--{}-file", t.flag), path.display().to_string()]);
+    let result = ctl::run_as(runner, &a);
+    let _ = std::fs::remove_file(&path);
+    result
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +244,11 @@ pub enum Effect {
     Open(String),
     /// Fetch and decode an image (an upload URL); answered by `Msg::Image`.
     FetchImage(String),
+    /// Open `$EDITOR` on `text`; answered by `Msg::Edited`.
+    Edit {
+        purpose: EditFor,
+        text: String,
+    },
 }
 
 /// An image in the open issue, by upload path.
@@ -176,6 +291,23 @@ pub enum Msg {
     Image {
         url: String,
         result: Result<Box<image::DynamicImage>, String>,
+    },
+    Looked {
+        what: Lookup,
+        team: String,
+        result: Result<Page<Named>, Failure>,
+    },
+    Wrote {
+        purpose: Purpose,
+        argv: Vec<String>,
+        text: Option<Text>,
+        summary: Vec<String>,
+        result: Result<Box<WriteResult>, Failure>,
+    },
+    /// The editor closed: the text, or `None` if it failed.
+    Edited {
+        purpose: EditFor,
+        text: Option<String>,
     },
 }
 
@@ -227,6 +359,18 @@ pub struct App {
     pub search: Option<String>,
     /// When recent searches ran, for the rate limit.
     searches: Vec<DateTime<Utc>>,
+    /// Lists for pickers.
+    pub lookups: Lookups,
+    /// A picker or confirm dialog over the screen.
+    pub overlay: Option<Overlay>,
+    /// The create form, while open.
+    pub form: Option<Form>,
+    /// The last thing that went well, for the status line.
+    pub notice: Option<String>,
+    /// Descriptions edited but not saved, by issue.
+    pub drafts: HashMap<String, String>,
+    /// Whether linearctl has `issue update --if-updated-at` (0.2.0).
+    pub can_check_updated: bool,
     /// How images are encoded for this terminal; `None` draws none.
     pub picker: Option<ratatui_image::picker::Picker>,
 }
@@ -256,6 +400,12 @@ impl App {
             picker: None,
             search: None,
             searches: Vec::new(),
+            lookups: Lookups::default(),
+            overlay: None,
+            form: None,
+            notice: None,
+            drafts: HashMap::new(),
+            can_check_updated: false,
         }
     }
 
@@ -457,6 +607,18 @@ impl App {
                 }
                 Vec::new()
             }
+            Msg::Looked { what, team, result } => {
+                self.on_looked(what, &team, result);
+                Vec::new()
+            }
+            Msg::Wrote {
+                purpose,
+                argv,
+                text,
+                summary,
+                result,
+            } => self.on_wrote(purpose, argv, text, summary, result),
+            Msg::Edited { purpose, text } => self.on_edited(purpose, text),
             Msg::Authed(Ok(a)) => {
                 self.auth = Some(a);
                 Vec::new()
@@ -477,6 +639,10 @@ impl App {
         if self.help {
             self.help = false;
             return Vec::new();
+        }
+        self.notice = None;
+        if let Some(fx) = self.write_key(k) {
+            return fx;
         }
         if self.filtering {
             return self.filter_key(k);
@@ -542,6 +708,9 @@ impl App {
     }
 
     fn list_key(&mut self, k: KeyEvent, ctrl: bool) -> Vec<Effect> {
+        if !ctrl && let Some(fx) = self.issue_action(k) {
+            return fx;
+        }
         match k.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Esc if !self.filter.is_empty() => {
@@ -587,6 +756,9 @@ impl App {
     }
 
     fn detail_key(&mut self, k: KeyEvent, ctrl: bool) -> Vec<Effect> {
+        if !ctrl && let Some(fx) = self.issue_action(k) {
+            return fx;
+        }
         let Some(d) = self.detail.as_mut() else {
             self.focus = Focus::List;
             return Vec::new();
@@ -650,7 +822,6 @@ fn matches(r: &IssueRow, needle: &str) -> bool {
 mod tests {
     use super::*;
     use crate::fake;
-    use crate::model::ShowResult;
 
     fn now() -> DateTime<Utc> {
         "2026-10-26T12:00:00Z".parse().unwrap()
@@ -673,29 +844,10 @@ mod tests {
         let Effect::Run(req) = fx else {
             panic!("not a request: {fx:?}")
         };
-        let run = |argv: &[String]| {
-            let out = fake::run(argv, now());
-            assert_eq!(out.code, 0, "{argv:?}: {}", out.stdout);
-            out.stdout
-        };
-        match req {
-            Request::List {
-                generation,
-                argv,
-                append,
-            } => Msg::Listed {
-                generation: *generation,
-                append: *append,
-                result: Ok(serde_json::from_str(&run(argv)).unwrap()),
-            },
-            Request::Show { id, argv } => Msg::Shown {
-                id: id.clone(),
-                result: Ok(Box::new(
-                    serde_json::from_str::<ShowResult>(&run(argv)).unwrap().issue,
-                )),
-            },
-            Request::Auth { argv } => Msg::Authed(Ok(serde_json::from_str(&run(argv)).unwrap())),
-        }
+        req.clone().run(&fake::InProcess {
+            now: now(),
+            state: None,
+        })
     }
 
     /// Apply a message and answer every request it makes, recursively.
@@ -910,7 +1062,7 @@ mod tests {
         assert!(matches!(&fx[0], Effect::Run(Request::Show { id, .. }) if id == "ENG-142"));
         let fx = drive(&mut app, ch('O'));
         assert!(matches!(&fx[0], Effect::Open(u) if u.contains("/issue/ENG-142/")));
-        assert!(drive(&mut app, ch('x')).is_empty());
+        assert!(drive(&mut app, ch('z')).is_empty());
     }
 
     #[test]

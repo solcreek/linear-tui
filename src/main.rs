@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use linear_tui::app::{App, Effect, Msg, default_views, missing};
+use linear_tui::app::{App, EditFor, Effect, Msg, default_views, missing};
 use linear_tui::contract::Describe;
 use linear_tui::ctl::Runner;
 use linear_tui::images::{self, DiskCache, Loader};
@@ -102,10 +102,11 @@ fn cell_size(v: Option<&String>) -> Result<(u16, u16), String> {
 
 /// The linearctl to run, and its environment. For the demo: linearctl's own
 /// demo mode when it has one, else fake-linearctl from beside this binary.
-fn linearctl(opts: &Options) -> Result<Runner, String> {
+fn linearctl(opts: &Options) -> Result<(Runner, Describe), String> {
     if !opts.demo {
-        check(&Describe::from_linearctl(&opts.program.to_string_lossy())?)?;
-        return Ok(Runner::new(&opts.program));
+        let d = Describe::from_linearctl(&opts.program.to_string_lossy())?;
+        check(&d)?;
+        return Ok((Runner::new(&opts.program), d));
     }
     if let Ok(d) = Describe::from_linearctl(&opts.program.to_string_lossy())
         && d.has_global_flag("demo")
@@ -113,12 +114,13 @@ fn linearctl(opts: &Options) -> Result<Runner, String> {
     {
         let mut r = Runner::new(&opts.program);
         r.env.push(("LINEARCTL_DEMO".into(), "1".into()));
-        return Ok(r);
+        return Ok((r, d));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let fake = exe.with_file_name(format!("fake-linearctl{}", std::env::consts::EXE_SUFFIX));
-    check(&Describe::from_linearctl(&fake.to_string_lossy())?)?;
-    Ok(Runner::new(fake))
+    let d = Describe::from_linearctl(&fake.to_string_lossy())?;
+    check(&d)?;
+    Ok((Runner::new(fake), d))
 }
 
 /// That this linearctl has every command and flag the TUI uses.
@@ -156,7 +158,15 @@ fn image_workers(loader: Arc<Loader>, tx: Sender<Msg>) -> Sender<String> {
     jobs
 }
 
-fn spawn(runner: &Runner, tx: &Sender<Msg>, images: &Sender<String>, fx: Vec<Effect>) {
+/// Start each effect; edits are returned, since they need the terminal.
+#[must_use]
+fn spawn(
+    runner: &Runner,
+    tx: &Sender<Msg>,
+    images: &Sender<String>,
+    fx: Vec<Effect>,
+) -> Vec<(EditFor, String)> {
+    let mut edits = Vec::new();
     for f in fx {
         match f {
             Effect::Run(req) => {
@@ -168,6 +178,7 @@ fn spawn(runner: &Runner, tx: &Sender<Msg>, images: &Sender<String>, fx: Vec<Eff
             Effect::FetchImage(url) => {
                 let _ = images.send(url);
             }
+            Effect::Edit { purpose, text } => edits.push((purpose, text)),
             Effect::Open(url) => {
                 let opener = if cfg!(target_os = "macos") {
                     "open"
@@ -182,6 +193,7 @@ fn spawn(runner: &Runner, tx: &Sender<Msg>, images: &Sender<String>, fx: Vec<Eff
             }
         }
     }
+    edits
 }
 
 fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
@@ -204,7 +216,7 @@ fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
     }
 }
 
-fn run(runner: &Runner, opts: &Options) -> std::io::Result<()> {
+fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<()> {
     let (tx, rx) = mpsc::channel();
     let loader = Loader {
         source: if opts.demo {
@@ -225,7 +237,8 @@ fn run(runner: &Runner, opts: &Options) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
     app.picker = picker(opts.images, opts.cell);
     app.images_on = opts.images != Images::Off;
-    spawn(runner, &tx, &image_jobs, app.start());
+    app.can_check_updated = linear_tui::app::can_check_updated(describe);
+    let mut edits = spawn(runner, &tx, &image_jobs, app.start());
     let result = loop {
         app.now = chrono::Utc::now();
         if let Err(e) = terminal.draw(|f| ui::render(&mut app, f)) {
@@ -234,7 +247,7 @@ fn run(runner: &Runner, opts: &Options) -> std::io::Result<()> {
         match event::poll(Duration::from_millis(50)) {
             Ok(true) => match event::read() {
                 Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => {
-                    spawn(runner, &tx, &image_jobs, app.update(Msg::Key(k)))
+                    edits.extend(spawn(runner, &tx, &image_jobs, app.update(Msg::Key(k))));
                 }
                 Ok(_) => {}
                 Err(e) => break Err(e),
@@ -243,7 +256,23 @@ fn run(runner: &Runner, opts: &Options) -> std::io::Result<()> {
             Err(e) => break Err(e),
         }
         while let Ok(msg) = rx.try_recv() {
-            spawn(runner, &tx, &image_jobs, app.update(msg));
+            edits.extend(spawn(runner, &tx, &image_jobs, app.update(msg)));
+        }
+        // The editor gets the terminal; the TUI comes back after it.
+        while let Some((purpose, text)) = edits.pop() {
+            ratatui::restore();
+            let edited = linear_tui::editor::edit(&text);
+            terminal = ratatui::init();
+            terminal.clear()?;
+            edits.extend(spawn(
+                runner,
+                &tx,
+                &image_jobs,
+                app.update(Msg::Edited {
+                    purpose,
+                    text: edited,
+                }),
+            ));
         }
         if app.quit {
             break Ok(());
@@ -263,14 +292,14 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let runner = match linearctl(&opts) {
+    let (runner, describe) = match linearctl(&opts) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("linear-tui: {e}");
             return ExitCode::FAILURE;
         }
     };
-    match run(&runner, &opts) {
+    match run(&runner, &describe, &opts) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("linear-tui: {e}");
