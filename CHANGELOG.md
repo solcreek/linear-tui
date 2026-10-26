@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `contract` module: checks command lines against `linearctl describe --json`.
   `cargo test` runs it over every linearctl call in the design, against a
   linearctl 0.1.0 snapshot, or the installed binary with `LINEARCTL_LIVE`.
+- Demo workspace (`demo/workspace.json`): a fictional team, Northwind, with 17
+  English issues, comment threads, sub-issues and relations.
+- `fake-linearctl`: answers linearctl's read commands from the demo workspace
+  in linearctl's JSON shapes and exit codes, and refuses writes. Used by the
+  demo and by tests until linearctl has a demo mode.
 - CI on Linux and macOS: rustfmt, clippy, tests, MSRV 1.88, 90% line coverage.
 
 [Unreleased]: https://github.com/solcreek/linear-tui/commits/main
