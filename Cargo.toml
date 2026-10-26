@@ -2,7 +2,7 @@
 name = "linear-tui"
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.90"
 default-run = "linear-tui"
 description = "A terminal UI for Linear that gets all its data from linearctl"
 license = "MIT"

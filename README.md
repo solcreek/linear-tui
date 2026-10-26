@@ -3,7 +3,7 @@
 [![CI](https://github.com/solcreek/linear-tui/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/solcreek/linear-tui/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/linear-tui?logo=npm)](https://www.npmjs.com/package/linear-tui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![MSRV 1.88](https://img.shields.io/badge/rustc-1.88%2B-orange?logo=rust)](Cargo.toml)
+[![MSRV 1.90](https://img.shields.io/badge/rustc-1.90%2B-orange?logo=rust)](Cargo.toml)
 [![Built with Ratatui](https://img.shields.io/badge/built%20with-Ratatui-000?logo=ratatui)](https://ratatui.rs)
 [![Data: linearctl](https://img.shields.io/badge/data-linearctl-5e6ad2?logo=linear)](https://github.com/solcreek/linear-cli)
 
@@ -37,7 +37,7 @@ the exact command. Live updates come next; see
 
 ## Try it
 
-Needs Rust 1.88 or newer. The demo needs no Linear account:
+Needs Rust 1.90 or newer. The demo needs no Linear account:
 
 ```sh
 git clone https://github.com/solcreek/linear-tui.git

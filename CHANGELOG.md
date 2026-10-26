@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The minimum Rust is 1.90: the image decoders need it.
+
 ### Added
 
 - `linear-tui`, read-only: the issue list with four views (My issues, Active,
