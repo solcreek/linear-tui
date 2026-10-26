@@ -311,6 +311,12 @@ fn comment_uuid(c: &Value) -> String {
     c["uuid"].as_str().map_or_else(|| uuid(c["id"].as_str().unwrap_or_default()), str::to_string)
 }
 
+/// `--priority`: 0-4 or none, urgent, high, medium, low.
+fn priority_value(p: &str) -> Option<i64> {
+    let names = ["none", "urgent", "high", "medium", "low"];
+    p.parse().ok().or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(p)).map(|i| i as i64))
+}
+
 fn priority_label(p: i64) -> &'static str {
     match p {
         1 => "Urgent",
@@ -629,6 +635,7 @@ impl Workspace {
 
     fn issue_list(&self, args: &Args) -> Result<Output, String> {
         args.only(&[
+            "priority",
             "team",
             "assignee",
             "state",
@@ -694,6 +701,8 @@ impl Workspace {
                     && cycle.as_ref().is_none_or(|c| &i["cycle"] == c)
                     && since.as_ref().is_none_or(|s| i["updatedAt"].as_str().is_some_and(|u| u >= s.as_str()))
                     && query.as_ref().is_none_or(|q| text().contains(q.as_str()))
+                    && (args.all("priority").is_empty()
+                        || args.all("priority").iter().any(|p| priority_value(p) == i["priority"].as_i64()))
             })
             .collect();
         let updated = |i: &Value| i["updatedAt"].as_str().unwrap_or_default().to_string();
@@ -925,6 +934,8 @@ mod tests {
         assert_eq!(ids("issue list --updated-since 2026-10-26 --json").len(), 5);
         assert_eq!(ids("issue list --updated-since 2026-10-26T11:00:00Z --json").len(), 2);
         assert_eq!(ids("issue list --updated-since 30d --json").len(), 17);
+        assert_eq!(ids("issue list --priority urgent --json"), ["ENG-158", "ENG-142"]);
+        assert_eq!(ids("issue list --priority 0 --priority 4 --json").len(), 4);
     }
 
     #[test]
