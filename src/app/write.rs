@@ -113,6 +113,8 @@ pub enum Target {
     Filter(super::filter::Slot),
     /// One of Linear's saved views, to show.
     SavedView,
+    /// The command palette.
+    Command,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -141,12 +143,19 @@ pub struct PickList {
 
 impl PickList {
     /// Items that match the query, with their index in `items`.
+    /// Every word typed must be in the label (or, for commands, the key).
     pub fn visible(&self) -> Vec<(usize, &PickItem)> {
         let q = self.query.to_lowercase();
         self.items
             .iter()
             .enumerate()
-            .filter(|(_, i)| q.is_empty() || i.label.to_lowercase().contains(&q))
+            .filter(|(_, i)| {
+                let mut text = i.label.to_lowercase();
+                if self.target == Target::Command {
+                    text = format!("{text} {}", i.hint.to_lowercase());
+                }
+                q.split_whitespace().all(|w| text.contains(w))
+            })
             .collect()
     }
 }
@@ -359,7 +368,7 @@ impl App {
             Target::Form(_) => self.form.as_ref().map(|f| f.team.clone()).unwrap_or_default(),
             Target::Reply { .. } => String::new(),
             Target::Filter(_) => self.filter_team(),
-            Target::SavedView => String::new(),
+            Target::SavedView | Target::Command => String::new(),
         }
     }
 
@@ -370,13 +379,14 @@ impl App {
             Target::Reply { .. } => return self.thread_items(),
             Target::Filter(slot) => return self.filter_items(*slot),
             Target::SavedView => return self.saved_view_items(),
+            Target::Command => return Vec::new(),
         };
         let team = self.team_of(target);
         let form = self.form.as_ref();
         let issue = match target {
             Target::Issue { issue, .. } => Some(&**issue),
             Target::Form(_) => None,
-            Target::Reply { .. } | Target::Filter(_) | Target::SavedView => None,
+            Target::Reply { .. } | Target::Filter(_) | Target::SavedView | Target::Command => None,
         };
         let list = |what| self.lookups.get(what, &team).cloned().unwrap_or_default();
         let item = |label: &str, value: &str, color: Option<String>, hint: &str, chosen: bool| PickItem {
@@ -500,6 +510,7 @@ impl App {
             Target::Issue { field, .. } | Target::Form(field) => *field,
             Target::Filter(slot) => return self.open_filter_picker(*slot),
             Target::SavedView => return self.open_saved_views(),
+            Target::Command => return self.open_palette(),
             Target::Reply { .. } => {
                 let items = self.thread_items();
                 let title = "Reply in which thread?".to_string();
@@ -642,7 +653,7 @@ impl App {
                 let threads = self.thread_items();
                 match threads.as_slice() {
                     [] => {
-                        self.notice = Some("No comments to reply to; c writes one.".into());
+                        self.notice = Some("No comments to reply to; m writes one.".into());
                         Some(Vec::new())
                     }
                     [only] => {
@@ -824,6 +835,10 @@ impl App {
             }
             Target::SavedView => match current {
                 Some(item) => self.show_saved_view(item),
+                None => Vec::new(),
+            },
+            Target::Command => match current {
+                Some(item) => self.run_command(item),
                 None => Vec::new(),
             },
             Target::Reply { issue } => {
@@ -1653,7 +1668,7 @@ mod tests {
         w.key(KeyCode::Char('3')); // Triage: ENG-157, no comments
         w.key(KeyCode::Enter);
         w.key(KeyCode::Char('R'));
-        assert_eq!(w.app.notice.as_deref(), Some("No comments to reply to; c writes one."));
+        assert_eq!(w.app.notice.as_deref(), Some("No comments to reply to; m writes one."));
         w.app.can_reply = false;
         w.key(KeyCode::Char('R'));
         assert_eq!(w.app.status.as_deref(), Some("Replies in a thread need linearctl 0.2.0 or later."));

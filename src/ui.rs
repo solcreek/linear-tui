@@ -425,10 +425,10 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
                 "↑↓ row · enter pick · d clear · ctrl-a apply · ctrl-s save · esc close"
             }
             (Focus::List, None, None) => {
-                "j/k move · enter open · / filter · c new · s status · p priority · a assign · i me · ? help · q quit"
+                "j/k move · enter open · / filter · c new · s status · p priority · a assign · i me · ctrl-k commands · ? help"
             }
             (Focus::Detail, None, None) => {
-                "j/k scroll · J/K next · m comment · R reply · e edit · s/p/a/L/P · y copy · esc back · ? help"
+                "j/k scroll · J/K next · m comment · R reply · e edit · s/p/a/L/P · y copy · ctrl-k · ? help"
             }
         };
         Line::from(Span::styled(format!(" {hints}"), dim()))
@@ -738,6 +738,7 @@ fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
 fn render_help(f: &mut Frame, area: Rect) {
     // As Linear's own keys wherever a terminal allows (docs/design.md).
     let keys = [
+        ("ctrl-k", "every command by name"),
         ("j k ↑ ↓", "move / scroll"),
         ("g g  G", "top / bottom"),
         ("g m  g a  g t", "My issues / Active / Triage"),
@@ -1116,6 +1117,19 @@ mod tests {
         assert!(s.contains(" y send · n cancel"), "footer");
         press(&mut app, KeyCode::Char('n'));
         assert!(screen(&draw(&mut app, 120, 24)).contains(" ✓ Not sent."));
+    }
+
+    #[test]
+    fn the_command_palette() {
+        let mut app = app_on('1');
+        app.update(Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)));
+        for c in "copy".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        let s = screen(&draw(&mut app, 120, 40));
+        assert!(s.contains(" Command "), "{s}");
+        assert!(s.contains("Copy issue URL  Y"), "{s}");
+        assert!(!s.contains("Change status"), "{s}");
     }
 
     #[test]

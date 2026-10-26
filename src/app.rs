@@ -13,6 +13,7 @@ use crate::model::{AuthStatus, IssueDetail, IssueRow, Named, Page, WriteResult};
 mod edit;
 mod filter;
 mod live;
+mod palette;
 mod undo;
 mod write;
 pub use edit::Editing;
@@ -879,6 +880,7 @@ impl App {
                 Some(Vec::new())
             }
             KeyCode::Char('z') if ctrl => Some(self.start_undo()),
+            KeyCode::Char('k') if ctrl => Some(self.open_palette()),
             _ => None,
         }
     }
@@ -1028,7 +1030,7 @@ fn matches(r: &IssueRow, needle: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::fake;
 
@@ -1036,15 +1038,15 @@ mod tests {
         "2026-10-26T12:00:00Z".parse().unwrap()
     }
 
-    fn key(c: KeyCode) -> Msg {
+    pub(crate) fn key(c: KeyCode) -> Msg {
         Msg::Key(KeyEvent::new(c, KeyModifiers::NONE))
     }
 
-    fn ch(c: char) -> Msg {
+    pub(crate) fn ch(c: char) -> Msg {
         key(KeyCode::Char(c))
     }
 
-    fn ctrl(c: char) -> Msg {
+    pub(crate) fn ctrl(c: char) -> Msg {
         Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
     }
 
@@ -1055,7 +1057,7 @@ mod tests {
     }
 
     /// Apply a message and answer every request it makes, recursively.
-    fn drive(app: &mut App, msg: Msg) -> Vec<Effect> {
+    pub(crate) fn drive(app: &mut App, msg: Msg) -> Vec<Effect> {
         let mut seen = Vec::new();
         let mut queue = app.update(msg);
         while let Some(fx) = queue.pop() {
@@ -1067,7 +1069,7 @@ mod tests {
         seen
     }
 
-    fn started() -> App {
+    pub(crate) fn started() -> App {
         let mut app = App::new(default_views(), now());
         for fx in app.start() {
             let m = answer(&fx);
