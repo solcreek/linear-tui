@@ -349,6 +349,8 @@ pub struct App {
     pub images_on: bool,
     /// The server search shown instead of the view, if any.
     pub search: Option<String>,
+    /// The order chosen with `o`, over the view's; until the view changes.
+    pub sort: Option<&'static str>,
     /// When recent searches ran, for the rate limit.
     searches: Vec<DateTime<Utc>>,
     /// Lists for pickers.
@@ -401,6 +403,7 @@ impl App {
             images_on: true,
             picker: None,
             search: None,
+            sort: None,
             searches: Vec::new(),
             lookups: Lookups::default(),
             overlay: None,
@@ -460,10 +463,40 @@ impl App {
 
     /// The `issue list` filters of what the list shows: the search, or the view.
     fn list_args(&self) -> Vec<String> {
-        match &self.search {
+        let mut args = match &self.search {
             Some(q) => vec!["--query".into(), q.clone()],
             None => self.views[self.view].args.clone(),
+        };
+        if let Some(s) = self.sort {
+            if let Some(i) = args.iter().position(|a| a == "--sort") {
+                args.drain(i..(i + 2).min(args.len()));
+            }
+            args.extend(["--sort".into(), s.into()]);
         }
+        args
+    }
+
+    /// The order the list is in: chosen with `o`, else the view's, else
+    /// linearctl's default; `None` for a search ranked by relevance.
+    pub fn order(&self) -> Option<&str> {
+        if let Some(s) = self.sort {
+            return Some(s);
+        }
+        let args = match &self.search {
+            Some(_) => return None,
+            None => &self.views[self.view].args,
+        };
+        let i = args.iter().position(|a| a == "--sort");
+        Some(i.and_then(|i| args.get(i + 1)).map_or("updated", String::as_str))
+    }
+
+    /// `o`: the next order, updated → created → priority.
+    fn cycle_sort(&mut self) -> Vec<Effect> {
+        const ORDERS: [&str; 3] = ["updated", "created", "priority"];
+        let at = self.order().and_then(|o| ORDERS.iter().position(|x| *x == o));
+        self.sort = Some(ORDERS[at.map_or(0, |i| (i + 1) % ORDERS.len())]);
+        self.notice = Some(format!("Sorted by {}", self.sort.unwrap_or_default()));
+        self.load_view()
     }
 
     fn load_view(&mut self) -> Vec<Effect> {
@@ -491,6 +524,7 @@ impl App {
         }
         self.view = view;
         self.search = None;
+        self.sort = None;
         self.rows.clear();
         self.selected = 0;
         self.next_cursor = None;
@@ -708,6 +742,7 @@ impl App {
         }
         self.searches.push(self.now);
         self.search = Some(q);
+        self.sort = None;
         self.filter.clear();
         self.rows.clear();
         self.selected = 0;
@@ -756,6 +791,7 @@ impl App {
             }
             KeyCode::Char('/') => self.filtering = true,
             KeyCode::Char('n') => return self.load_more(),
+            KeyCode::Char('o') => return self.cycle_sort(),
             KeyCode::Char('O') => {
                 if let Some(r) = self.selected_row() {
                     return vec![Effect::Open(r.url.clone())];
@@ -1346,6 +1382,35 @@ mod tests {
         app.now += chrono::Duration::seconds(40);
         drive(&mut app, key(KeyCode::Esc));
         assert!(!search_for(&mut app, "more").is_empty(), "the oldest search has aged out");
+    }
+
+    #[test]
+    fn o_cycles_the_order() {
+        let mut app = started();
+        assert_eq!(app.order(), Some("priority"), "My issues sorts by priority");
+        let fx = drive(&mut app, ch('o'));
+        assert!(matches!(&fx[0], Effect::Run(Request::List { argv, .. })
+            if argv.windows(2).any(|w| w == ["--sort", "updated"]) && argv.iter().filter(|a| *a == "--sort").count() == 1));
+        assert_eq!(app.order(), Some("updated"));
+        assert_eq!(app.notice.as_deref(), Some("Sorted by updated"));
+        drive(&mut app, ch('o'));
+        assert_eq!(app.order(), Some("created"));
+        assert_eq!(ids(&app)[0], "ENG-143", "the newest created of mine");
+        drive(&mut app, ch('o'));
+        assert_eq!(app.order(), Some("priority"));
+        // A view without --sort is in updated order; a new view drops the choice.
+        drive(&mut app, ch('4'));
+        assert_eq!(app.order(), Some("updated"));
+        drive(&mut app, ch('o'));
+        assert_eq!(app.order(), Some("created"));
+        // A search is by relevance until sorted.
+        search_for(&mut app, "coupon");
+        assert_eq!(app.order(), None);
+        let fx = drive(&mut app, ch('o'));
+        assert!(
+            matches!(&fx[0], Effect::Run(Request::List { argv, .. }) if argv.contains(&"--query".to_string()))
+        );
+        assert_eq!(app.order(), Some("updated"));
     }
 
     #[test]

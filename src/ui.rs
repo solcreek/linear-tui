@@ -305,7 +305,8 @@ fn render_header(app: &App, f: &mut Frame, area: Rect) {
     } else {
         let n = app.visible().len();
         let more = if app.next_cursor.is_some() { "+" } else { "" };
-        format!("{n}{more} issues")
+        let by = app.order().map(|o| format!("by {o} · ")).unwrap_or_default();
+        format!("{by}{n}{more} issues")
     };
     let live = match &app.live {
         Some(l) if l.ready && l.mode == "poll" => {
@@ -673,6 +674,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ("L P", "labels / project"),
         ("A", "assign to me"),
         ("x", "archive"),
+        ("o", "sort: updated, created, priority"),
         ("r", "refresh"),
         ("O", "open in browser"),
         ("q", "quit"),
@@ -1063,11 +1065,11 @@ mod tests {
             heard: now(),
         };
         app.live = Some(live("", false));
-        assert!(screen(&draw(&mut app, 120, 5)).contains("○ connecting  4 issues"));
+        assert!(screen(&draw(&mut app, 120, 5)).contains("○ connecting  by priority · 4 issues"));
         app.live = Some(live("subscription", true));
-        assert!(screen(&draw(&mut app, 120, 5)).contains("● live  4 issues"));
+        assert!(screen(&draw(&mut app, 120, 5)).contains("● live  by priority · 4 issues"));
         app.live = Some(live("poll", true));
-        assert!(screen(&draw(&mut app, 120, 5)).contains("● live · polling  4 issues"));
+        assert!(screen(&draw(&mut app, 120, 5)).contains("● live · polling  by priority · 4 issues"));
     }
 
     #[test]
