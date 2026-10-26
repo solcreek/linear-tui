@@ -8,6 +8,12 @@ Status: design. See [docs/design.md](docs/design.md).
 
 ## Tests
 
-    make test       # unit tests, and the design doc checked against linearctl 0.1.0
-    make cover      # the same with branch coverage (uses uvx)
-    make contract-live   # the design against the linearctl on PATH
+All tests are Rust.
+
+    cargo test                              # unit tests; docs/design.md vs linearctl 0.1.0
+    LINEARCTL_LIVE=linearctl cargo test     # the design vs the installed linearctl
+    cargo llvm-cov --summary-only           # coverage
+
+With Homebrew's Rust (no rustup `llvm-tools`), point cargo-llvm-cov at the
+matching LLVM: `LLVM_COV=$(brew --prefix llvm@22)/bin/llvm-cov`
+`LLVM_PROFDATA=$(brew --prefix llvm@22)/bin/llvm-profdata`.

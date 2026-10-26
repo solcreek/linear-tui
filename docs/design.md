@@ -7,7 +7,7 @@ can do with the CLI — and the TUI shows the exact command for each action (see
 [Command parity](#command-parity)).
 
 Built against linearctl **0.1.0**. Every `linearctl` invocation in this file is
-checked against `linearctl describe` by `make test` (`scripts/check_contract.py`);
+checked against `linearctl describe` by `cargo test` (`src/contract.rs`);
 the commands under "(proposed)" headings do not exist yet.
 
 Facts below marked *verified* were run against the live API on 2026-10-26.
@@ -58,7 +58,7 @@ Modules:
 
 - Binary: `$LINEARCTL`, else `linearctl` in `config.toml`, else `PATH`.
 - On start, run `linearctl describe --json` (local, ~5 ms, no request). Check that
-  every command and flag the TUI builds exists — the same check `make test` runs on
+  every command and flag the TUI builds exists — the same check `cargo test` runs on
   this doc — and refuse to start with one clear message if not. The same result
   turns on optional features when linearctl grows them (`watch`, `serve`; see
   [gaps](#what-linearctl-lacks-proposed)).
@@ -426,7 +426,7 @@ Tests ship with the first line of code; CI fails below 85% line coverage
 
 - **Contract**: the describe snapshot (`tests/fixtures/linearctl-describe-0.1.0.json`)
   is checked against every argv the builders can produce, and against this doc
-  (`make test`). `make contract-live` checks the installed linearctl.
+  (`cargo test`). `LINEARCTL_LIVE=linearctl cargo test` checks the installed one.
 - **Model**: fixtures captured from linearctl 0.1.0 (list page, detail with images
   and comment threads, every error shape, dry-run and write results), with personal
   data replaced.
