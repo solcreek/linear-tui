@@ -121,6 +121,8 @@ pub struct Runner {
     /// Retries after exit 4 (busy), waiting `busy_backoff`, then twice that...
     pub busy_retries: u32,
     pub busy_backoff: Duration,
+    /// The working directory; `file download` writes only inside it.
+    pub cwd: Option<PathBuf>,
 }
 
 impl Runner {
@@ -131,6 +133,7 @@ impl Runner {
             timeout: Duration::from_secs(20),
             busy_retries: 3,
             busy_backoff: Duration::from_millis(200),
+            cwd: None,
         }
     }
 
@@ -157,7 +160,11 @@ impl Runner {
     }
 
     fn run_once(&self, argv: &[String]) -> Result<Value, Failure> {
-        let mut child = Command::new(&self.program)
+        let mut cmd = Command::new(&self.program);
+        if let Some(dir) = &self.cwd {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd
             .args(argv)
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())

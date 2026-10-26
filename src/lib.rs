@@ -4,6 +4,7 @@ pub mod app;
 pub mod contract;
 pub mod ctl;
 pub mod fake;
+pub mod images;
 pub mod markdown;
 pub mod model;
 pub mod sanitize;
