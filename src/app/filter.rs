@@ -340,6 +340,66 @@ impl App {
     }
 }
 
+impl App {
+    /// `V`: a picker of Linear's saved issue views (linearctl 0.6.0).
+    pub(super) fn open_saved_views(&mut self) -> Vec<Effect> {
+        let argv = ctl::lookup_argv(Lookup::Views, "");
+        if self.describe.as_ref().is_some_and(|d| !d.check_argv(&argv).is_empty()) {
+            self.status = Some("Linear's saved views need linearctl 0.6.0 or later.".into());
+            return Vec::new();
+        }
+        let mut fx = Vec::new();
+        let waiting = if self.lookups.get(Lookup::Views, "").is_none() {
+            fx = self.need(Lookup::Views, "");
+            Some((Lookup::Views, String::new()))
+        } else {
+            None
+        };
+        let items = if waiting.is_some() { Vec::new() } else { self.saved_view_items() };
+        if waiting.is_none() && items.is_empty() {
+            self.notice = Some("No saved issue views in this workspace.".into());
+            return fx;
+        }
+        let list = PickList {
+            title: "Saved views".into(),
+            items,
+            multi: false,
+            cursor: 0,
+            query: String::new(),
+            target: Target::SavedView,
+            waiting,
+        };
+        self.overlay = Some(Overlay::Pick(Box::new(list)));
+        fx
+    }
+
+    /// Issue views (not project views), by name; the id is the value.
+    pub(super) fn saved_view_items(&self) -> Vec<PickItem> {
+        let views = self.lookups.get(Lookup::Views, "").cloned().unwrap_or_default();
+        views
+            .iter()
+            .filter(|v| v.model_name.is_empty() || v.model_name == "Issue")
+            .map(|v| {
+                let hint = v.owner.as_ref().map(|o| o.name.clone()).unwrap_or_default();
+                let on =
+                    self.filtered.as_ref().is_some_and(|f| f.args == ["--view".to_string(), v.id.clone()]);
+                PickItem { label: v.name.clone(), value: v.id.clone(), color: None, hint, chosen: on }
+            })
+            .collect()
+    }
+
+    /// Show a saved view as a temporary view.
+    pub(super) fn show_saved_view(&mut self, item: PickItem) -> Vec<Effect> {
+        self.filtered = Some(View { name: item.label, args: vec!["--view".into(), item.value] });
+        self.search = None;
+        self.sort = None;
+        self.rows.clear();
+        self.selected = 0;
+        self.next_cursor = None;
+        self.load_view()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,6 +668,56 @@ mod tests {
         let Some(Effect::Watch { argv, .. }) = fx.first() else { panic!("{fx:?}") };
         assert!(!argv.contains(&"me".to_string()), "{argv:?}");
         assert_eq!(app.live.as_ref().unwrap().args, app.filtered.as_ref().unwrap().args);
+    }
+
+    #[test]
+    fn v_shows_a_saved_linear_view() {
+        let mut app = started();
+        key(&mut app, KeyCode::Char('V'));
+        let p = picker(&app);
+        assert_eq!(p.title, "Saved views");
+        let names: Vec<&str> = p.items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(names, ["Checkout bugs", "Mobile 3.0 open"]);
+        assert_eq!(p.items[0].hint, "Maya Patel");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.filtered.as_ref().unwrap().name, "Checkout bugs");
+        assert_eq!(app.filtered.as_ref().unwrap().args[0], "--view");
+        assert_eq!(ids(&app), ["ENG-158", "ENG-142", "ENG-143", "ENG-144"]);
+        // The one shown is marked; f starts from its flags.
+        key(&mut app, KeyCode::Char('V'));
+        assert!(picker(&app).items[0].chosen);
+        key(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Char('f'));
+        assert_eq!(app.filters.as_ref().unwrap().extra[0], "--view");
+    }
+
+    #[test]
+    fn a_saved_view_is_not_watched() {
+        let mut app = started();
+        app.can_watch = true;
+        let now = include_str!("../../tests/fixtures/linearctl-describe-0.6.0.json");
+        app.describe = Some(crate::contract::Describe::from_json(now).unwrap());
+        key(&mut app, KeyCode::Char('V'));
+        let fx = key(&mut app, KeyCode::Enter);
+        assert!(fx.iter().all(|f| !matches!(f, Effect::Watch { .. })), "watch has no --view: {fx:?}");
+    }
+
+    #[test]
+    fn saved_views_need_linearctl_0_6_0_and_some_views() {
+        let mut app = started();
+        let old = include_str!("../../tests/fixtures/linearctl-describe-0.1.0.json");
+        app.describe = Some(crate::contract::Describe::from_json(old).unwrap());
+        key(&mut app, KeyCode::Char('V'));
+        assert_eq!(app.status.as_deref(), Some("Linear's saved views need linearctl 0.6.0 or later."));
+        app.describe = None;
+        app.update(Msg::Looked {
+            what: Lookup::Views,
+            team: String::new(),
+            result: Ok(crate::model::Page::default()),
+        });
+        key(&mut app, KeyCode::Char('V'));
+        assert!(app.overlay.is_none());
+        assert_eq!(app.notice.as_deref(), Some("No saved issue views in this workspace."));
     }
 
     #[test]

@@ -86,6 +86,8 @@ pub enum Lookup {
     Users,
     Projects,
     Cycles,
+    /// Linear's saved views (0.6.0).
+    Views,
 }
 
 /// All of one lookup, for a team where it is per team.
@@ -97,6 +99,7 @@ pub fn lookup_argv(what: Lookup, team: &str) -> Vec<String> {
         Lookup::Users => argv(&["user", "list", "--active"]),
         Lookup::Projects => argv(&["project", "list", "--team", team]),
         Lookup::Cycles => argv(&["cycle", "list", "--team", team]),
+        Lookup::Views => argv(&["view", "list"]),
     };
     a.extend(argv(&["--limit", "0", "--json"]));
     a

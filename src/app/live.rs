@@ -39,11 +39,18 @@ impl App {
     pub(super) fn ensure_watch(&mut self) -> Vec<Effect> {
         if !self.can_watch
             || self.search.is_some()
+            || !self.can_watch_these()
             || self.live.as_ref().is_some_and(|l| l.args == self.watched_args())
         {
             return Vec::new();
         }
         self.start_watch()
+    }
+
+    /// Whether watch takes the list's flags: it has no --view, for one.
+    fn can_watch_these(&self) -> bool {
+        let argv = ctl::watch_argv(&self.watched_args());
+        self.describe.as_ref().is_none_or(|d| d.check_argv(&argv).is_empty())
     }
 
     fn start_watch(&mut self) -> Vec<Effect> {

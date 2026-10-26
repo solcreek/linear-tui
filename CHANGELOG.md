@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `V` shows one of Linear's saved issue views (linearctl 0.6.0), as a
+  temporary view; `f` starts from it.
 - `e` edits an issue's fields in the form: title, status, priority,
   assignee, labels, project and description, sent as one `issue update` of
   what changed (with `--if-updated-at` where linearctl has it), confirmed

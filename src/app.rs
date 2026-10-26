@@ -848,6 +848,7 @@ impl App {
             KeyCode::Char('n') => return self.load_more(),
             KeyCode::Char('o') => return self.cycle_sort(),
             KeyCode::Char('f') => return self.open_filters(),
+            KeyCode::Char('V') => return self.open_saved_views(),
             KeyCode::Char('O') => {
                 if let Some(r) = self.selected_row() {
                     return vec![Effect::Open(r.url.clone())];

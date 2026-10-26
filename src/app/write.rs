@@ -108,6 +108,8 @@ pub enum Target {
     },
     /// A row of the filter panel.
     Filter(super::filter::Slot),
+    /// One of Linear's saved views, to show.
+    SavedView,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,7 +206,7 @@ impl Lookups {
 /// Lookups that are not per team are kept under "".
 fn scope(what: Lookup, team: &str) -> String {
     match what {
-        Lookup::Teams | Lookup::Users => String::new(),
+        Lookup::Teams | Lookup::Users | Lookup::Views => String::new(),
         _ => team.to_string(),
     }
 }
@@ -326,6 +328,7 @@ impl App {
             Target::Form(_) => self.form.as_ref().map(|f| f.team.clone()).unwrap_or_default(),
             Target::Reply { .. } => String::new(),
             Target::Filter(_) => self.filter_team(),
+            Target::SavedView => String::new(),
         }
     }
 
@@ -335,13 +338,14 @@ impl App {
             Target::Issue { field, .. } | Target::Form(field) => *field,
             Target::Reply { .. } => return self.thread_items(),
             Target::Filter(slot) => return self.filter_items(*slot),
+            Target::SavedView => return self.saved_view_items(),
         };
         let team = self.team_of(target);
         let form = self.form.as_ref();
         let issue = match target {
             Target::Issue { issue, .. } => Some(&**issue),
             Target::Form(_) => None,
-            Target::Reply { .. } | Target::Filter(_) => None,
+            Target::Reply { .. } | Target::Filter(_) | Target::SavedView => None,
         };
         let list = |what| self.lookups.get(what, &team).cloned().unwrap_or_default();
         let item = |label: &str, value: &str, color: Option<String>, hint: &str, chosen: bool| PickItem {
@@ -416,6 +420,7 @@ impl App {
         let field = match &target {
             Target::Issue { field, .. } | Target::Form(field) => *field,
             Target::Filter(slot) => return self.open_filter_picker(*slot),
+            Target::SavedView => return self.open_saved_views(),
             Target::Reply { .. } => {
                 let items = self.thread_items();
                 let title = "Reply in which thread?".to_string();
@@ -656,6 +661,10 @@ impl App {
                 self.choose_filter(slot, chosen, current);
                 Vec::new()
             }
+            Target::SavedView => match current {
+                Some(item) => self.show_saved_view(item),
+                None => Vec::new(),
+            },
             Target::Reply { issue } => {
                 let Some(item) = current else { return Vec::new() };
                 let purpose = EditFor::Reply { issue, parent: item.value, to: item.hint };

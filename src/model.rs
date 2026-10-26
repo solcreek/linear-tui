@@ -227,6 +227,9 @@ pub struct Named {
     pub team: Option<Team>,
     /// Cycles.
     pub number: Option<i64>,
+    /// Saved views: Issue or Project, and who made them.
+    pub model_name: String,
+    pub owner: Option<User>,
 }
 
 /// What a write prints: `changed`, whether it was a dry run, the input it
