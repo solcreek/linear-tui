@@ -697,7 +697,9 @@ impl Workspace {
                     && (args.all("any-label").is_empty()
                         || args.all("any-label").iter().any(|l| labels.contains(&l.as_str())))
                     && !args.all("without-label").iter().any(|l| labels.contains(&l.as_str()))
-                    && args.one("project").is_none_or(|p| i["project"] == p)
+                    && args
+                        .one("project")
+                        .is_none_or(|p| if p == "none" { i["project"].is_null() } else { i["project"] == p })
                     && cycle.as_ref().is_none_or(|c| &i["cycle"] == c)
                     && since.as_ref().is_none_or(|s| i["updatedAt"].as_str().is_some_and(|u| u >= s.as_str()))
                     && query.as_ref().is_none_or(|q| text().contains(q.as_str()))
@@ -923,6 +925,7 @@ mod tests {
         assert_eq!(ids("issue list --any-label Security --any-label Performance --json").len(), 2);
         assert!(!ids("issue list --without-label Bug --json").contains(&"ENG-142".to_string()));
         assert_eq!(ids("issue list --project 'Mobile 3.0' --json").len(), 2);
+        assert_eq!(ids("issue list --project none --json").len(), 5, "no project");
         assert_eq!(ids("issue list --cycle current --json").len(), 8);
         assert_eq!(ids("issue list --cycle next --json"), ["ENG-151", "ENG-153"]);
         assert_eq!(ids("issue list --cycle 23 --json"), ["ENG-131"]);

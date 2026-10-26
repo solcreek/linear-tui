@@ -197,11 +197,17 @@ fn fields(raw: &Value, args: &Args) -> Result<Result<Fields, Done>, String> {
         f.seed.insert("labels".into(), json!(names));
     }
     if let Some(p) = args.one("project") {
-        let Some(name) = named(raw, "projects", p) else {
-            return Ok(Err(not_found("project", p)));
-        };
-        f.input.insert("projectId".into(), json!(project_id(&name)));
-        f.seed.insert("project".into(), json!(name));
+        // none clears it, as linearctl 0.6.0 does.
+        if p == "none" {
+            f.input.insert("projectId".into(), Value::Null);
+            f.seed.insert("project".into(), Value::Null);
+        } else {
+            let Some(name) = named(raw, "projects", p) else {
+                return Ok(Err(not_found("project", p)));
+            };
+            f.input.insert("projectId".into(), json!(project_id(&name)));
+            f.seed.insert("project".into(), json!(name));
+        }
     }
     if let Some(p) = args.one("parent") {
         let Some(parent) = raw["issues"]
@@ -728,6 +734,16 @@ mod tests {
         assert_eq!(go("comment create ENG-158 --body x --yes --json", None).0, 2);
         assert_eq!(go("comment create ENG-999 --body x --dry-run --json", None).0, 1);
         assert_eq!(go("comment create ENG-158 --body x --id abc --yes --json", None).0, 1, "read-only");
+    }
+
+    #[test]
+    fn project_none_clears_it() {
+        let st = state("project-none");
+        let (_, dry) = go("issue update ENG-142 --project none --dry-run --json", Some(&st));
+        assert_eq!(dry["input"], json!({"projectId": null}));
+        assert_eq!(go("issue update ENG-142 --project none --yes --json", Some(&st)).0, 0);
+        assert!(go("issue show ENG-142 --json", Some(&st)).1["issue"]["project"].is_null());
+        assert_eq!(go("issue update ENG-142 --project none --yes --json", Some(&st)).1["changed"], false);
     }
 
     #[test]
