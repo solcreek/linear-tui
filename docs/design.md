@@ -29,14 +29,15 @@ attachment upload, offline writes, notifications (no `linearctl` command yet).
  │   ↑ Msg                 ↓ Effect                    │
  │ App state (Elm-style update; pure, unit-tested)     │
  │   ↓ Effect                                          │
- │ a thread per linearctl call, 4 image workers         │
+ │ linearctl calls on threads, over 3 serve processes  │
+ │ one watch process; 4 image workers                  │
  │   ctl::Runner ── spawn ──▶ linearctl … --json  ─────┼──▶ api.linear.app
  │   images::Loader ── https GET (signed URL) ─────────┼──▶ uploads.linear.app
  │   image cache ($XDG_CACHE_HOME/linear-tui)          │
  └─────────────────────────────────────────────────────┘
 ```
 
-Plain threads and channels, no async runtime: every call blocks on a child
+Plain threads and channels, no async runtime: every call blocks on linearctl
 process or one HTTPS request, and a handful run at a time.
 
 Crates: `ratatui` + `crossterm`, `ratatui-image` + `image` (PNG, JPEG, GIF,
@@ -70,8 +71,15 @@ Modules, each tested as it is written (`cargo llvm-cov`: 97% of lines):
   this doc — and refuse to start with one clear message if not. The same result
   turns on optional features when linearctl grows them (`watch`, `serve`; see
   [gaps](#what-linearctl-lacks-proposed)).
-- Each call: a child process on its own thread, stdin closed, stdout and stderr
-  drained, killed at a 20 s deadline. The environment is inherited unchanged; the TUI
+- Each call runs on its own thread. With linearctl 0.2.0 or later (`serve` in
+  `describe`) it goes to one of up to 3 `linearctl serve --stdio` processes,
+  started on first use, which keep their connection to Linear and their key
+  (linear-cli measured ~80 ms saved a call): a request is `{"id", "argv"}` on a
+  line, the answer `{"id", "exit", "result", "stdout", "stderr"}`. A process that
+  dies is started again once; if serve cannot run, or with 0.1.0, each call is a
+  process of its own, stdin closed, stdout and stderr drained. Either way the
+  deadline is 20 s. `file download` (the image fallback) always gets its own
+  process, for its working directory. The environment is inherited unchanged; the TUI
   never sets or reads `LINEAR_API_KEY`.
 - Into a pipe the JSON is one compact line. Parse stdout whatever the exit code:
   failures also print `{"error", "usage"}` there (*verified*). The stderr hint
@@ -310,35 +318,30 @@ per request, ~5 ms of it linearctl (docs/performance.md in linear-cli).
 
 Refresh policy — no tight polling:
 
-- The visible list refreshes every **120 s** with `--updated-since`, only while the
-  terminal has focus (crossterm focus events) and the list is on screen. After 10
-  minutes with no key press the timer stops until the next key.
-- `--updated-since` cannot see an issue that *left* the view (moved to Done,
-  reassigned): its row stays until the next full reload. A full reload of the first
-  page runs every 10 minutes while active, and on `r`. `watch` would fix this (gap 1).
-- When linearctl has `watch` (detected from `describe`), the TUI runs one watcher
-  for the visible view and drops both timers; they stay as the fallback when the
-  watcher exits. linear-cli reports (2026-10-26) that Linear's GraphQL
-  subscriptions accept a personal API key, events arriving 0.07–4.6 s after a
-  change, so `watch` will push rather than poll where it can.
-- The watcher (linear-cli main `ac99981`, unreleased) takes the view's
-  `issue list` filters plus `--fields` and prints one JSON object a line, keyed
-  by `event`:
-  - `ready {mode, since, known, everything}`: up to date from `since`;
-  - `upsert {issue}`: a list row, merged by `id`; if it is the open issue, the
-    detail re-runs `issue show` (watch does not report comments);
-  - `remove {id, identifier, reason}`: drop the row; a remove for an id the TUI
-    never had is ignored (`everything: true` sends those);
-  - `heartbeat {at, mode, rateLimit}`: liveness, and the budget for the status
-    bar; no line for 2 × `--heartbeat` means the watcher is restarted;
-  - `gap {from, to, reason, mode, downFor}`: linearctl replays the gap itself;
-    the status bar notes a fallback to polling.
-  It ends with the usual exit codes and a last `{error}` line (5, 6 with
-  `retryAt`, 1); the TUI then falls back to the timers and retries the watcher.
-  Cost: 1–2 requests at start for a filtered view, then at most one check
-  every 2 s while issues change, plus 2 per reconcile (300 s).
-- Details are cached for 2 min; nothing is prefetched.
-- Lookups: once per day per team.
+- With linearctl 0.2.0 or later (`watch` in `describe`), each loaded view starts
+  one `watch` with the view's filters (not `--sort`, which watch lacks), the
+  list's `--fields`, and `--since` the time the list was loaded, so changes made
+  in between are replayed. Its lines, one JSON object each, keyed by `event`:
+  - `ready {mode, since, known, everything}`: up to date; the header says
+    `● live`, or `● live · polling` when linearctl polls;
+  - `upsert {issue}`: a list row; it replaces the row with that `id` or goes on
+    top, the selection stays on its issue, and if it is the open issue the
+    detail runs `issue show` again (watch does not report comments);
+  - `remove {id, identifier, reason}`: the row goes; an unknown id is ignored;
+  - `heartbeat {at, mode, rateLimit}`: liveness; no line for 75 s (heartbeats
+    come every 30 s) restarts the watch;
+  - `gap {from, to, reason, mode}`: linearctl replays the gap itself; the status
+    line says it reconnected, or fell back to polling.
+  A watch that ends (exit 5, 6, 1, with a last `{error}` line) is shown in the
+  status line and started again after 30 s. A search has no watch. Cost: 1–2
+  requests at start for a filtered view, then at most one check every 2 s while
+  issues change, plus 2 per reconcile (300 s).
+- Without `watch` (0.1.0), the view is reloaded every **120 s** while nothing is
+  loading and no dialog is open. Later: only while the terminal has focus, and
+  `--updated-since` deltas instead of whole pages.
+- Details are cached until written, reloaded (`r`) or changed per `watch`;
+  nothing is prefetched.
+- Lookups: once per run.
 
 A busy hour of use:
 
@@ -483,8 +486,7 @@ Tests ship with each change, in Rust only; CI fails below 90% line coverage
 4. Search *(done)*; filter panel, sort, configured views.
 5. Writes: quick edits, create, comment, description, archive *(done)*; the full
    edit form, undo, thread replies.
-6. Live updates with `watch` and calls over `serve --stdio` (both in linearctl
-   0.2.0).
+6. Live updates with `watch` and calls over `serve --stdio`. *Done.*
 7. Release: per-platform binaries on npm as `linear-tui`, like linearctl's.
 
 ## What linearctl lacks (proposed)

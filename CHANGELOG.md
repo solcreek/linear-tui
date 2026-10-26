@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Live updates: with linearctl 0.2.0 or later, the list follows `linearctl
+  watch` for the view on screen (`● live` in the header): changed issues update
+  in place, new ones appear on top, ones that stop matching go, and the open
+  issue reloads when it changes. A watch that stops is retried. With 0.1.0 the
+  view reloads every two minutes.
+- With linearctl 0.2.0 or later, calls go over a few `linearctl serve --stdio`
+  processes instead of one process each.
 - `linear-tui`, read-only: the issue list with four views (My issues, Active,
   Triage, Recent), paging, a local filter, and the issue detail beside the
   list on wide terminals (Markdown description, sub-issues, relations,

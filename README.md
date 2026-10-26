@@ -26,7 +26,9 @@ Sixel, iTerm2 or half blocks), sub-issues, relations, attachments and threaded
 comments; and writes: state, priority, assignee, labels and project through
 pickers, comments and descriptions in `$EDITOR`, archiving, and a form for new
 issues. Every write is a linearctl dry run first, and the confirm dialog shows
-the exact command. Live updates come next; see
+the exact command. With linearctl 0.2.0 or later the list updates live
+(`linearctl watch`) and calls share a few long-lived linearctl processes
+(`serve --stdio`); see
 [docs/design.md](docs/design.md) for the whole plan. The npm package
 `linear-tui` is a name placeholder until the first release.
 
