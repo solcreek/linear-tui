@@ -26,66 +26,69 @@ attachment upload, offline writes, notifications (no `linearctl` command yet).
 ```
  ┌───────────── linear-tui (one process) ─────────────┐
  │ UI thread: ratatui draw + crossterm events          │
- │   ↑ AppEvent            ↓ Effect                    │
+ │   ↑ Msg                 ↓ Effect                    │
  │ App state (Elm-style update; pure, unit-tested)     │
  │   ↓ Effect                                          │
- │ tokio runtime                                       │
+ │ a thread per linearctl call, 4 image workers         │
  │   ctl::Runner ── spawn ──▶ linearctl … --json  ─────┼──▶ api.linear.app
- │   images::Fetcher ── https GET (signed URL) ────────┼──▶ uploads.linear.app
- │   cache (memory + $XDG_CACHE_HOME/linear-tui)       │
+ │   images::Loader ── https GET (signed URL) ─────────┼──▶ uploads.linear.app
+ │   image cache ($XDG_CACHE_HOME/linear-tui)          │
  └─────────────────────────────────────────────────────┘
 ```
 
-Crates: `ratatui` + `crossterm`, `ratatui-image` + `image`, `tokio`, `serde` /
-`serde_json`, `pulldown-cmark`, `unicode-width` + `textwrap`, `tui-textarea`,
-`uuid` (v4), `reqwest` (rustls, HTTPS only), `directories`, `toml`, `tracing`
-(to a log file, never the terminal).
+Plain threads and channels, no async runtime: every call blocks on a child
+process or one HTTPS request, and a handful run at a time.
 
-Modules:
+Crates: `ratatui` + `crossterm`, `ratatui-image` + `image` (PNG, JPEG, GIF,
+WebP, BMP), `pulldown-cmark`, `unicode-width`, `serde` / `serde_json`, `chrono`,
+`ureq` (rustls, HTTPS only), `sha2`, `uuid` (v4), `shlex`.
+
+Modules, each tested as it is written (`cargo llvm-cov`: 97% of lines):
 
 | module | does | tested by |
 |---|---|---|
-| `ctl::args` | builds argv from typed requests (`ListQuery`, `IssueEdit`, …); pure | unit + contract test against the describe snapshot |
-| `ctl::runner` | spawns, enforces timeouts and concurrency, maps exit codes | fake `linearctl` binary driven by a scenario file |
-| `model` | serde types for every result; unknown fields ignored, missing ones defaulted | fixtures captured from linearctl 0.1.0 |
-| `markdown` | Markdown → layout blocks (text, image, code, table, rule) | golden tests incl. CJK width, hostile input |
-| `images` | fetch, cache, decode, size | local HTTPS stub; halfblocks protocol in tests |
-| `store` | query cache, lookups, freshness | unit |
-| `app` | state + `update(event) -> effects` | unit, no terminal |
-| `ui` | one `render` per screen | ratatui `TestBackend` snapshots (`insta`) |
+| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.2.0 snapshots |
+| `ctl` | argv builders; `Runner` spawns with a deadline and maps exit codes; `Exec` | unit; the fake binary with injected faults |
+| `model` | serde types for every result; unknown fields ignored, missing ones defaulted | fixtures from the fake and from linearctl 0.1.0 |
+| `sanitize` | strips control, C1 and bidi characters from all Linear text | unit |
+| `markdown` | Markdown → styled, wrapped lines; links and images collected | unit, incl. CJK width and every demo description |
+| `images` | fetch, cache, decode | a local HTTP server; the fake for the keyed fallback |
+| `app` (+ `app::write`) | state and `update(msg) -> effects`: list, detail, search, pickers, form, writes | unit, no terminal, against the fake in-process |
+| `ui` | draws each screen | ratatui `TestBackend` |
+| `editor` | the `$EDITOR` round trip | unit, with `sh` and `true`/`false` as editors |
+| `fake` | `fake-linearctl`: the demo workspace in linearctl's shapes, writes, faults | unit and as a binary |
 
 ### Talking to linearctl
 
-- Binary: `$LINEARCTL`, else `linearctl` in `config.toml`, else `PATH`.
-- `--demo`: the same linearctl with `LINEARCTL_DEMO=1`, which answers from a
-  built-in fictional workspace (seeded from `demo/workspace.json`) with no key
-  and no network. Until linearctl ships it, `--demo` runs `fake-linearctl`, which
-  serves the same seed; afterwards the fake stays only for fault injection.
+- Binary: `--linearctl PATH`, else `$LINEARCTL`, else `linearctl` on `PATH`.
+- `--demo`: the same linearctl with `LINEARCTL_DEMO=1` when its `describe` lists
+  the global `--demo` flag (0.2.0), which answers from a built-in fictional
+  workspace (seeded from `demo/workspace.json`) with no key and no network; else
+  `fake-linearctl` from beside the binary, which serves the same seed.
 - On start, run `linearctl describe --json` (local, ~5 ms, no request). Check that
   every command and flag the TUI builds exists — the same check `cargo test` runs on
   this doc — and refuse to start with one clear message if not. The same result
   turns on optional features when linearctl grows them (`watch`, `serve`; see
   [gaps](#what-linearctl-lacks-proposed)).
-- Each call: `tokio::process::Command` with `kill_on_drop`, stdin closed (or the
-  body for `--description-file -`), stdout and stderr captured, `--timeout 15`
-  plus an outer 20 s deadline. The environment is inherited unchanged; the TUI
+- Each call: a child process on its own thread, stdin closed, stdout and stderr
+  drained, killed at a 20 s deadline. The environment is inherited unchanged; the TUI
   never sets or reads `LINEAR_API_KEY`.
 - Into a pipe the JSON is one compact line. Parse stdout whatever the exit code:
   failures also print `{"error", "usage"}` there (*verified*). The stderr hint
   ("3 shown, more remain; --cursor …") is ignored.
-- At most 4 calls in flight; reads are cancelled (process killed) when the screen
-  that asked for them goes away. Every request carries a generation number, and a
-  result for a stale filter or a closed issue is dropped.
+- Every list request carries a generation number, and a result for a replaced
+  list is dropped; a detail result for an issue no longer open is only cached.
 
 | exit | TUI reaction |
 |---|---|
 | 0 ok | apply |
-| 1 failed | toast with `error`; "not found: …" on a detail closes it and drops the row |
-| 2 usage | a TUI bug: toast "internal error", log the full argv |
+| 1 failed | the status line shows `error` |
+| 2 usage | a TUI bug: "internal error (bad linearctl invocation): …" |
 | 3 partial | not produced by the commands we use (`api query` only); treated as 1 |
 | 4 busy | retry after 200 ms, 400 ms, 800 ms, then 1 |
-| 5 auth | full-screen notice: run `linearctl auth login --yes` with the key on stdin in a shell, then press `r`. The TUI does not take the key itself |
-| 6 rate-limited | pause all reads until `retryAt`, countdown in the status bar; a pending write stays in its dialog for the user to retry |
+| 5 auth | the status line shows linearctl's message (run `linearctl auth login --yes` with the key on stdin, then `r`). The TUI never takes the key. Later: a full-screen notice |
+| 6 rate-limited | the status line shows `retryAt`. Later: pause reads until then |
+| 7 conflict | (0.2.0) a description write refused because the issue changed; the text is kept as a draft |
 
 ### Writes
 
@@ -104,12 +107,13 @@ it and can never duplicate (linearctl returns the existing item, `changed: false
 replaces the cached row and detail without a re-fetch; `issue create --yes` and
 `comment create --yes` return the new item likewise.
 
-Long text goes through stdin (`--description-file -`, `--body-file -`), never argv,
-so it stays out of `ps` and has no length limit.
+Long text goes in a private temporary file (`--description-file PATH`,
+`--body-file PATH`, 0600, removed after), never argv: it stays out of `ps`, has
+no length limit, and works with `serve --stdio`, which takes no stdin.
 
-Single-field quick edits (state, priority, assignee) skip the confirm dialog — the
-dry run still runs and its error, if any, is shown — and can be undone with `u`
-(the TUI remembers the previous value and issues the reverse update).
+Quick edits (state, priority, assignee, labels, project, assign to me) skip the
+confirm dialog: the dry run still runs, its error (if any) is shown, and `--yes`
+follows only when it changes something. Later: `u` to undo the last one.
 
 ## Screens and keybindings
 
@@ -137,18 +141,18 @@ updated, then assignee.
 | `j` `k` / arrows, `g` `G`, `Ctrl-d` `Ctrl-u` | move |
 | `Enter` / `l` | open detail (split pane at ≥ 140 columns, full screen otherwise) |
 | `/` | filter loaded rows locally as you type; `Enter` in the box runs a server search |
-| `f` | filter panel |
-| `o` | sort cycle: updated → created → priority |
-| `1`…`9` | saved views |
-| `s` `p` `a` `L` | quick edit state / priority / assignee / labels of the selected issue |
+| `f` | filter panel (later) |
+| `o` | sort cycle: updated → created → priority (later) |
+| `1`…`9`, `Tab` | views (from `config.toml`: later; four built in) |
+| `s` `p` `a` `L` `P` | quick edit state / priority / assignee / labels / project of the selected issue |
 | `A` | assign to me |
 | `c` | create issue |
 | `x` | archive (confirm) |
 | `O` | open in browser |
 | `n` at the bottom | load the next page (`--cursor`); also automatic when scrolling past the end |
 
-**Views** are named filter sets in `~/.config/linear-tui/config.toml`, each the
-`issue list` flags it stands for:
+**Views** are named filter sets, each the `issue list` flags it stands for. Four
+are built in; later, `~/.config/linear-tui/config.toml` will define them:
 
 ```toml
 [[view]]
@@ -200,14 +204,14 @@ Calls:
 |---|---|
 | `j` `k`, `Ctrl-d` `Ctrl-u`, `g` `G` | scroll |
 | `]` `[` | next / previous issue in the list without leaving the detail |
-| `e` | edit form; `E` description in `$EDITOR` |
-| `s` `p` `a` `L` `A` `x` | as in the list |
-| `c` | comment (`tui-textarea`; `Ctrl-e` moves the draft to `$EDITOR`) |
-| `Tab` | focus the next link, sub-issue, relation or image; `Enter` follows it (issue → detail, URL → browser, image → full screen) |
+| `E` | description in `$EDITOR` (`e`, a full edit form: later) |
+| `s` `p` `a` `L` `P` `A` `x` | as in the list |
+| `c` | comment in `$EDITOR` |
+| `Tab` | focus the next link, sub-issue, relation or image; `Enter` follows it (later) |
 | `i` | toggle images (off → alt text only) |
-| `v` | the focused image full screen |
-| `d` | download the focused upload |
-| `C` | load all comments (when more than shown) |
+| `v` | the focused image full screen (later) |
+| `d` | download the focused upload (later) |
+| `C` | load all comments when more than shown (later) |
 | `O` | open in browser |
 
 Calls:
@@ -242,8 +246,8 @@ labels, project, parent, and the description (`Ctrl-e` for `$EDITOR`). Pickers
 use the cached lookups. Submit runs
 
 ```
-linearctl issue create --team ENG --title "…" --priority high --label bug --description-file - --id <uuid> --dry-run --json
-linearctl issue create --team ENG --title "…" --priority high --label bug --description-file - --id <uuid> --yes --json
+linearctl issue create --team ENG --title "…" --priority high --label bug --description-file PATH --id <uuid> --dry-run --json
+linearctl issue create --team ENG --title "…" --priority high --label bug --description-file PATH --id <uuid> --yes --json
 ```
 
 and opens the new issue's detail.
@@ -254,22 +258,24 @@ and opens the new issue's detail.
   `p` priority (0–4), `a` assignee (`me`, `none`, or an email), `L` labels
   (multi-select; sends `--add-label` / `--remove-label` for the difference, so a
   label added concurrently by someone else survives).
-- `e` full form; only changed fields become flags.
+- `P` project, `A` assign to me, `x` archive (confirmed).
+- Later: `e`, a full edit form; only changed fields become flags.
 - `E` description: the current text in a temp file (0600) in `$EDITOR`; on save,
-  `linearctl issue update <ID> --description-file - --dry-run --json`, then `--yes`.
+  `linearctl issue update <ID> --description-file PATH --dry-run --json`, a confirm
+  dialog with the exact command, then `--yes`.
 
-Concurrent edits: before writing a description, the TUI re-reads `updatedAt` with
-`linearctl issue show <ID> --fields updatedAt --comments=0 --json` and, if it moved
-since the editor opened, shows both versions and asks. One extra request; a proper
-fix is a precondition flag in linearctl (gap 5).
+Concurrent edits: with linearctl 0.2.0 (detected from `describe`), the write
+carries `--if-updated-at` with the `updatedAt` the detail was loaded with, and
+linearctl refuses it with exit 7 if the issue changed since. Then, or when any
+description write fails or is cancelled, the edited text is kept as a draft, and
+the next `E` opens it.
 
 ### 6. Comment
 
-`c` in the detail →
-`linearctl comment create <ID> --body-file - --id <uuid> --dry-run --json`, then
-`--yes`. The new comment is appended from the result. Replying inside a thread
-needs a `--parent` flag linearctl does not have (gap 6); until then a reply is a
-top-level comment that quotes the parent.
+`c` in the detail opens `$EDITOR`; on save,
+`linearctl comment create <ID> --body-file PATH --id <uuid> --dry-run --json`, a
+confirm dialog, then `--yes`. The new comment is appended from the result.
+Later: replies in a thread, with linearctl 0.2.0's `comment create --parent`.
 
 ### 7. Lookups, auth and status
 
@@ -438,33 +444,36 @@ renderer**, not an off-the-shelf widget.
 
 ## Caching of JSON results
 
-- In memory: results keyed by the argv that produced them, with fetch time.
-- On disk, for instant start: the last first page of each view and the lookups, in
-  `$XDG_CACHE_HOME/linear-tui/<org urlKey>/`, 0600. At start the cached page shows
-  at once, marked stale, and is revalidated. Issue details are not persisted.
+- In memory: issue details by identifier (dropped when written or on `r`), and
+  lookups (teams, states, labels, users, projects) once per run.
+- Later, on disk for instant start: the last first page of each view and the
+  lookups, in `$XDG_CACHE_HOME/linear-tui/`, 0600, shown at once marked stale and
+  revalidated.
 - `--fields` keeps list payloads small; details always fetch all fields.
 
 ## Testing
 
-Tests ship with the first line of code; CI fails below 85% line coverage
-(`cargo llvm-cov`), with `ctl`, `model`, `markdown` and `images` held to 90%.
+Tests ship with each change, in Rust only; CI fails below 90% line coverage
+(`cargo llvm-cov`; 97% now, the uncovered part is mostly the terminal loop).
 
-- **Contract**: the describe snapshot (`tests/fixtures/linearctl-describe-0.1.0.json`)
-  is checked against every argv the builders can produce, and against this doc
-  (`cargo test`). `LINEARCTL_LIVE=linearctl cargo test` checks the installed one.
-- **Model**: fixtures captured from linearctl 0.1.0 (list page, detail with images
-  and comment threads, every error shape, dry-run and write results), with personal
-  data replaced.
-- **Runner**: a fake `linearctl` (a test binary reading a scenario: stdout, stderr,
-  exit code, delay) for timeouts, cancellation, each exit code, busy retries.
-- **App**: `update` is pure; key sequences in, state and effects out.
-- **UI**: `TestBackend` snapshots per screen, at 80 and 160 columns.
-- **Markdown**: golden files, including CJK, nested lists, tables wider than the
-  pane, and hostile input (escape sequences, bidi overrides, 1 MB descriptions).
-- **Images**: a local HTTPS stub serving fixtures with 200/401/oversized/not-an-image
-  answers; protocol fixed to halfblocks so output is deterministic.
-- **Live smoke** (opt-in, `LINEAR_TUI_LIVE=1`, reads only): list, show with signed
-  URLs, fetch one image.
+- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.2.0
+  (`tests/fixtures/`) are checked against every argv the app builds and against
+  this doc. `LINEARCTL_LIVE=linearctl cargo test` checks the installed one.
+- **Fake**: `fake-linearctl` serves `demo/workspace.json` in linearctl's shapes,
+  takes writes (kept in `FAKE_LINEARCTL_STATE`), and injects faults
+  (`FAKE_LINEARCTL_FAULT`: any exit code, sleeps, garbage, crashes, busy once).
+- **Model**: the fake's answers, and rows captured from linearctl 0.1.0 (no
+  nested colours).
+- **Runner**: the fake binary for each exit code, timeouts, busy retries, crashes.
+- **App**: `update` is pure; key sequences in, state and effects out, run against
+  the fake in-process (`fake::InProcess`), writes included.
+- **UI**: `TestBackend` at 80–160 columns; images drawn with half blocks.
+- **Markdown**: CJK, nested lists, tables wider than the pane, hostile text, and
+  every demo description at three widths.
+- **Images**: a local HTTP server for 200/401/403/302/500/oversized answers; the
+  fake for the keyed fallback.
+- **By hand**: `scripts/screenshots.sh` renders the demo with termshot, kitty
+  graphics included.
 
 ## Milestones
 
