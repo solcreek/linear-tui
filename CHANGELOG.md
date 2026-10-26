@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `f` opens the filter panel: team, assignee, status type, status, labels
+  (all, any, none), project, cycle, priority, updated since and sort, each set
+  through a picker, with the `linearctl issue list` command it makes. `ctrl-a`
+  shows it as a temporary view (watched live like any other, `esc` returns);
+  `ctrl-s` saves it to config.toml as a view.
 - Views from `~/.config/linear-tui/config.toml` (`$XDG_CONFIG_HOME` if set):
   `[[view]]` entries with a `name` and the `issue list` flags as `args`,
   replacing the built-in four; checked against linearctl at start.

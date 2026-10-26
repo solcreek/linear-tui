@@ -10,13 +10,16 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::ctl::{self, Failure, Lookup};
 use crate::model::{AuthStatus, IssueDetail, IssueRow, Named, Page, WriteResult};
 
+mod filter;
 mod live;
 mod undo;
 mod write;
+pub use filter::{FilterPanel, SLOTS, Slot};
 pub use live::{Live, can_watch};
 pub use undo::{Undo, UndoStep};
 pub use write::{
     Confirm, EditFor, FORM_FIELDS, Field, Form, Lookups, Overlay, PickItem, PickList, Purpose, Target, Text,
+    shell_line,
 };
 
 /// Rows fetched per page.
@@ -378,6 +381,10 @@ pub struct App {
     pub can_reply: bool,
     /// What `u` reverts: the last write, when it can be.
     pub undo: Option<Undo>,
+    /// The filter panel, while open.
+    pub filters: Option<FilterPanel>,
+    /// Filters applied from the panel: shown instead of the view.
+    pub filtered: Option<View>,
     /// The config file views are saved to, if there is a place for one.
     pub config: Option<std::path::PathBuf>,
     /// linearctl's command surface, when known: which undos it can run.
@@ -431,6 +438,8 @@ impl App {
             undo: None,
             describe: None,
             config: None,
+            filters: None,
+            filtered: None,
             live: None,
             pending_open: None,
             watch_generation: 0,
@@ -484,7 +493,7 @@ impl App {
     fn list_args(&self) -> Vec<String> {
         let mut args = match &self.search {
             Some(q) => vec!["--query".into(), q.clone()],
-            None => self.views[self.view].args.clone(),
+            None => self.watched_args(),
         };
         if let Some(s) = self.sort {
             if let Some(i) = args.iter().position(|a| a == "--sort") {
@@ -495,18 +504,27 @@ impl App {
         args
     }
 
+    /// The filters of the list shown (not a search): applied from the
+    /// panel, else the view's.
+    pub fn watched_args(&self) -> Vec<String> {
+        match &self.filtered {
+            Some(v) => v.args.clone(),
+            None => self.views[self.view].args.clone(),
+        }
+    }
+
     /// The order the list is in: chosen with `o`, else the view's, else
     /// linearctl's default; `None` for a search ranked by relevance.
-    pub fn order(&self) -> Option<&str> {
+    pub fn order(&self) -> Option<String> {
         if let Some(s) = self.sort {
-            return Some(s);
+            return Some(s.to_string());
         }
-        let args = match &self.search {
-            Some(_) => return None,
-            None => &self.views[self.view].args,
-        };
+        if self.search.is_some() {
+            return None;
+        }
+        let args = self.watched_args();
         let i = args.iter().position(|a| a == "--sort");
-        Some(i.and_then(|i| args.get(i + 1)).map_or("updated", String::as_str))
+        Some(i.and_then(|i| args.get(i + 1)).map_or("updated".to_string(), String::clone))
     }
 
     /// `o`: the next order, updated → created → priority.
@@ -544,6 +562,7 @@ impl App {
         self.view = view;
         self.search = None;
         self.sort = None;
+        self.filtered = None;
         self.rows.clear();
         self.selected = 0;
         self.next_cursor = None;
@@ -782,6 +801,13 @@ impl App {
                 self.filter.clear();
                 self.selected = 0;
             }
+            KeyCode::Esc if self.search.is_none() && self.filtered.is_some() => {
+                self.filtered = None;
+                self.rows.clear();
+                self.selected = 0;
+                self.next_cursor = None;
+                return self.load_view();
+            }
             KeyCode::Esc if self.search.is_some() => {
                 self.search = None;
                 self.rows.clear();
@@ -811,6 +837,7 @@ impl App {
             KeyCode::Char('/') => self.filtering = true,
             KeyCode::Char('n') => return self.load_more(),
             KeyCode::Char('o') => return self.cycle_sort(),
+            KeyCode::Char('f') => return self.open_filters(),
             KeyCode::Char('O') => {
                 if let Some(r) = self.selected_row() {
                     return vec![Effect::Open(r.url.clone())];
@@ -1406,30 +1433,30 @@ mod tests {
     #[test]
     fn o_cycles_the_order() {
         let mut app = started();
-        assert_eq!(app.order(), Some("priority"), "My issues sorts by priority");
+        assert_eq!(app.order().as_deref(), Some("priority"), "My issues sorts by priority");
         let fx = drive(&mut app, ch('o'));
         assert!(matches!(&fx[0], Effect::Run(Request::List { argv, .. })
             if argv.windows(2).any(|w| w == ["--sort", "updated"]) && argv.iter().filter(|a| *a == "--sort").count() == 1));
-        assert_eq!(app.order(), Some("updated"));
+        assert_eq!(app.order().as_deref(), Some("updated"));
         assert_eq!(app.notice.as_deref(), Some("Sorted by updated"));
         drive(&mut app, ch('o'));
-        assert_eq!(app.order(), Some("created"));
+        assert_eq!(app.order().as_deref(), Some("created"));
         assert_eq!(ids(&app)[0], "ENG-143", "the newest created of mine");
         drive(&mut app, ch('o'));
-        assert_eq!(app.order(), Some("priority"));
+        assert_eq!(app.order().as_deref(), Some("priority"));
         // A view without --sort is in updated order; a new view drops the choice.
         drive(&mut app, ch('4'));
-        assert_eq!(app.order(), Some("updated"));
+        assert_eq!(app.order().as_deref(), Some("updated"));
         drive(&mut app, ch('o'));
-        assert_eq!(app.order(), Some("created"));
+        assert_eq!(app.order().as_deref(), Some("created"));
         // A search is by relevance until sorted.
         search_for(&mut app, "coupon");
-        assert_eq!(app.order(), None);
+        assert_eq!(app.order().as_deref(), None);
         let fx = drive(&mut app, ch('o'));
         assert!(
             matches!(&fx[0], Effect::Run(Request::List { argv, .. }) if argv.contains(&"--query".to_string()))
         );
-        assert_eq!(app.order(), Some("updated"));
+        assert_eq!(app.order().as_deref(), Some("updated"));
     }
 
     #[test]

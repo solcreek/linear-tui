@@ -200,12 +200,19 @@ pub struct AuthStatus {
     pub source: String,
 }
 
+/// A string that may be null, as empty.
+fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
 /// An entry of a lookup list: a team, workflow state, label, user or
 /// project. Each kind fills the fields it has.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Named {
     pub id: String,
+    /// Cycles may have none (null).
+    #[serde(deserialize_with = "null_as_empty")]
     pub name: String,
     /// Teams.
     pub key: String,
@@ -218,6 +225,8 @@ pub struct Named {
     pub email: String,
     pub display_name: String,
     pub team: Option<Team>,
+    /// Cycles.
+    pub number: Option<i64>,
 }
 
 /// What a write prints: `changed`, whether it was a dry run, the input it
@@ -407,6 +416,13 @@ mod tests {
         assert_eq!(ev[6], WatchEvent::Other);
         // The last line of a failed watch has no event.
         assert!(serde_json::from_str::<WatchEvent>(r#"{"error":"rate limited"}"#).is_err());
+    }
+
+    #[test]
+    fn lookups_read_cycles_without_names() {
+        let p: Page<Named> = serde_json::from_str(&fake_json("cycle list --json")).unwrap();
+        assert_eq!(p.items[0].name, "");
+        assert_eq!(p.items[0].number, Some(23));
     }
 
     #[test]

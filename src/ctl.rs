@@ -85,6 +85,7 @@ pub enum Lookup {
     Labels,
     Users,
     Projects,
+    Cycles,
 }
 
 /// All of one lookup, for a team where it is per team.
@@ -95,6 +96,7 @@ pub fn lookup_argv(what: Lookup, team: &str) -> Vec<String> {
         Lookup::Labels => argv(&["label", "list", "--team", team]),
         Lookup::Users => argv(&["user", "list", "--active"]),
         Lookup::Projects => argv(&["project", "list", "--team", team]),
+        Lookup::Cycles => argv(&["cycle", "list", "--team", team]),
     };
     a.extend(argv(&["--limit", "0", "--json"]));
     a
@@ -401,7 +403,9 @@ mod tests {
 
     #[test]
     fn lookup_argvs_are_valid_linearctl() {
-        for what in [Lookup::Teams, Lookup::States, Lookup::Labels, Lookup::Users, Lookup::Projects] {
+        for what in
+            [Lookup::Teams, Lookup::States, Lookup::Labels, Lookup::Users, Lookup::Projects, Lookup::Cycles]
+        {
             let a = lookup_argv(what, "ENG");
             assert_valid_in_both(&a);
             assert!(a.windows(2).any(|w| w == ["--limit", "0"]));

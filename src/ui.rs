@@ -11,7 +11,7 @@ use ratatui_image::picker::Picker;
 use ratatui_image::{FilterType, FontSize, Resize, StatefulImage};
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Confirm, FORM_FIELDS, Focus, Form, ImageSlot, Overlay, PickList};
+use crate::app::{App, Confirm, FORM_FIELDS, FilterPanel, Focus, Form, ImageSlot, Overlay, PickList, SLOTS};
 use crate::markdown;
 use crate::model::{IssueDetail, IssueRow, Label, State, User};
 
@@ -133,6 +133,9 @@ pub fn render(app: &mut App, f: &mut Frame) {
     if let Some(form) = &app.form {
         render_form(form, f, body);
     }
+    if let Some(panel) = &app.filters {
+        render_filters(panel, f, body);
+    }
     match &app.overlay {
         Some(Overlay::Pick(p)) => render_picker(p, f, body),
         Some(Overlay::Confirm(c)) => render_confirm(c, f, body),
@@ -231,6 +234,48 @@ fn wrap_plain(s: &str, w: usize) -> Vec<String> {
     out
 }
 
+fn render_filters(panel: &FilterPanel, f: &mut Frame, area: Rect) {
+    let mut lines = Vec::new();
+    for (i, slot) in panel.slots.iter().enumerate() {
+        let name = SLOTS.iter().find(|s| s.0 == *slot).map_or("", |s| s.1);
+        let focused = panel.row == i;
+        let style = if focused { Style::new().fg(ACCENT).add_modifier(Modifier::BOLD) } else { dim() };
+        let values = panel.get(*slot);
+        let value = if values.is_empty() { Span::styled("any", dim()) } else { Span::raw(values.join(", ")) };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{} {name:<13}", if focused { "›" } else { " " }), style),
+            value,
+        ]));
+    }
+    if !panel.extra.is_empty() {
+        lines
+            .push(Line::from(vec![Span::styled("  Also         ", dim()), Span::raw(panel.extra.join(" "))]));
+    }
+    lines.push(Line::raw(""));
+    let mut argv = vec!["issue".to_string(), "list".to_string()];
+    argv.extend(panel.args());
+    let command = crate::app::shell_line(&argv, None);
+    for chunk in wrap_plain(&command, 94) {
+        lines.push(Line::from(Span::styled(format!("  {chunk}"), dim())));
+    }
+    lines.push(Line::raw(""));
+    lines.push(match &panel.naming {
+        Some(name) => Line::from(vec![
+            Span::styled("  Save as view: ", Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            Span::raw(format!("{name}▏")),
+            Span::styled("   enter save · esc back", dim()),
+        ]),
+        None => Line::from(Span::styled(
+            "  ↑↓ row · enter pick · d clear · ctrl-a apply · ctrl-s save as view · esc close",
+            dim(),
+        )),
+    });
+    let rect = centered(area, 100, u16::try_from(lines.len()).unwrap_or(u16::MAX).saturating_add(2));
+    f.render_widget(Clear, rect);
+    let block = Block::bordered().title(" Filters ").border_style(Style::new().fg(ACCENT));
+    f.render_widget(Paragraph::new(lines).block(block), rect);
+}
+
 fn render_form(form: &Form, f: &mut Frame, area: Rect) {
     let label = |name: &str, i: usize| {
         let focused = form.field == i;
@@ -284,6 +329,10 @@ fn render_header(app: &App, f: &mut Frame, area: Rect) {
         format!(" {org} "),
         Style::new().fg(Color::White).bg(ACCENT).add_modifier(Modifier::BOLD),
     )];
+    if app.search.is_none() && app.filtered.is_some() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled("Filter", Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)));
+    }
     if let Some(q) = &app.search {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
@@ -292,7 +341,7 @@ fn render_header(app: &App, f: &mut Frame, area: Rect) {
         ));
     }
     for (i, v) in app.views.iter().enumerate() {
-        let style = if i == app.view && app.search.is_none() {
+        let style = if i == app.view && app.search.is_none() && app.filtered.is_none() {
             Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
             dim()
@@ -346,6 +395,9 @@ fn render_footer(app: &App, f: &mut Frame, area: Rect) {
             (_, Some(Overlay::Pick(_)), _) => "type to filter · ↑↓ move · enter choose · esc cancel",
             (_, Some(Overlay::Confirm(_)), _) => "y send · n cancel",
             (_, None, Some(_)) => "tab/↑↓ field · enter pick or edit · ctrl-s create · esc discard",
+            (_, None, None) if app.filters.is_some() => {
+                "↑↓ row · enter pick · d clear · ctrl-a apply · ctrl-s save · esc close"
+            }
             (Focus::List, None, None) => {
                 "j/k move · enter open · / filter · c new · s state · a assignee · p priority · ? help · q quit"
             }
@@ -676,6 +728,8 @@ fn render_help(f: &mut Frame, area: Rect) {
         ("A", "assign to me"),
         ("x", "archive"),
         ("o", "sort: updated, created, priority"),
+        ("f", "filters; save as a view"),
+        ("u", "undo the last change"),
         ("r", "refresh"),
         ("O", "open in browser"),
         ("q", "quit"),
@@ -1060,7 +1114,7 @@ mod tests {
         assert!(!screen(&draw(&mut app, 120, 5)).contains("live"));
         let live = |mode: &str, ready| crate::app::Live {
             generation: 1,
-            view: 0,
+            args: vec![],
             mode: mode.into(),
             ready,
             heard: now(),

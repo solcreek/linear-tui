@@ -100,6 +100,8 @@ pub enum Target {
     Reply {
         issue: String,
     },
+    /// A row of the filter panel.
+    Filter(super::filter::Slot),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,7 +262,7 @@ impl App {
     }
 
     /// Load a lookup unless loaded or loading.
-    fn need(&mut self, what: Lookup, team: &str) -> Vec<Effect> {
+    pub(super) fn need(&mut self, what: Lookup, team: &str) -> Vec<Effect> {
         let key = (what, scope(what, team));
         if self.lookups.lists.contains_key(&key) || self.lookups.loading.contains(&key) {
             return Vec::new();
@@ -315,6 +317,7 @@ impl App {
             Target::Issue { issue, .. } => issue.team.as_ref().map(|t| t.key.clone()).unwrap_or_default(),
             Target::Form(_) => self.form.as_ref().map(|f| f.team.clone()).unwrap_or_default(),
             Target::Reply { .. } => String::new(),
+            Target::Filter(_) => self.filter_team(),
         }
     }
 
@@ -323,13 +326,14 @@ impl App {
         let field = match target {
             Target::Issue { field, .. } | Target::Form(field) => *field,
             Target::Reply { .. } => return self.thread_items(),
+            Target::Filter(slot) => return self.filter_items(*slot),
         };
         let team = self.team_of(target);
         let form = self.form.as_ref();
         let issue = match target {
             Target::Issue { issue, .. } => Some(&**issue),
             Target::Form(_) => None,
-            Target::Reply { .. } => None,
+            Target::Reply { .. } | Target::Filter(_) => None,
         };
         let list = |what| self.lookups.get(what, &team).cloned().unwrap_or_default();
         let item = |label: &str, value: &str, color: Option<String>, hint: &str, chosen: bool| PickItem {
@@ -403,6 +407,7 @@ impl App {
     fn open_picker(&mut self, target: Target) -> Vec<Effect> {
         let field = match &target {
             Target::Issue { field, .. } | Target::Form(field) => *field,
+            Target::Filter(slot) => return self.open_filter_picker(*slot),
             Target::Reply { .. } => {
                 let items = self.thread_items();
                 let title = "Reply in which thread?".to_string();
@@ -569,6 +574,7 @@ impl App {
             Some(Overlay::Pick(p)) => Some(self.pick_key(*p, k)),
             Some(Overlay::Confirm(c)) => Some(self.confirm_key(*c, k)),
             None if self.form.is_some() => Some(self.form_key(k)),
+            None if self.filters.is_some() => Some(self.filters_key(k)),
             None => None,
         }
     }
@@ -637,6 +643,10 @@ impl App {
         let current = p.visible().get(p.cursor).map(|(_, i)| (*i).clone());
         let chosen: Vec<String> = p.items.iter().filter(|i| i.chosen).map(|i| i.value.clone()).collect();
         match p.target {
+            Target::Filter(slot) => {
+                self.choose_filter(slot, chosen, current);
+                Vec::new()
+            }
             Target::Reply { issue } => {
                 let Some(item) = current else { return Vec::new() };
                 let purpose = EditFor::Reply { issue, parent: item.value, to: item.hint };

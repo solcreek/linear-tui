@@ -19,7 +19,8 @@ pub const QUIET: Duration = Duration::seconds(75);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Live {
     pub generation: u64,
-    pub view: usize,
+    /// The filters watched: the view's, or the panel's.
+    pub args: Vec<String>,
     /// subscription or poll, once linearctl says.
     pub mode: String,
     /// Up to date (after `ready`).
@@ -36,7 +37,9 @@ pub fn can_watch(d: &crate::contract::Describe) -> bool {
 impl App {
     /// Start a watch for the view if none runs for it.
     pub(super) fn ensure_watch(&mut self) -> Vec<Effect> {
-        if !self.can_watch || self.search.is_some() || self.live.as_ref().is_some_and(|l| l.view == self.view)
+        if !self.can_watch
+            || self.search.is_some()
+            || self.live.as_ref().is_some_and(|l| l.args == self.watched_args())
         {
             return Vec::new();
         }
@@ -47,9 +50,14 @@ impl App {
         self.watch_generation += 1;
         self.watch_retry_at = None;
         let generation = self.watch_generation;
-        self.live =
-            Some(Live { generation, view: self.view, mode: String::new(), ready: false, heard: self.now });
-        let mut argv = ctl::watch_argv(&self.views[self.view].args);
+        self.live = Some(Live {
+            generation,
+            args: self.watched_args(),
+            mode: String::new(),
+            ready: false,
+            heard: self.now,
+        });
+        let mut argv = ctl::watch_argv(&self.watched_args());
         // Replay what changed since the list was loaded, so nothing falls
         // between the load and the watch starting.
         if let Some(t) = self.last_loaded {
@@ -239,7 +247,7 @@ mod tests {
         .unwrap();
         assert!(d.check_argv(&argv).is_empty());
         let live = app.live.as_ref().unwrap();
-        assert!(!live.ready && live.view == 0);
+        assert!(!live.ready && live.args == default_views()[0].args);
     }
 
     #[test]
