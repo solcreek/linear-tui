@@ -33,8 +33,8 @@ pub(super) fn write(
     }
     let mut raw = load_raw(state);
     let result = match words {
-        ["issue", "update", id] => update(&mut raw, id, args, dry)?,
-        ["issue", "create"] => create(&mut raw, args, dry)?,
+        ["issue", "update", id] => update(&mut raw, id, args, dry, now)?,
+        ["issue", "create"] => create(&mut raw, args, dry, now)?,
         ["issue", "archive", id] => archive(&mut raw, id, args, dry, true)?,
         ["issue", "unarchive", id] => archive(&mut raw, id, args, dry, false)?,
         ["comment", "delete", id] => delete_comment(&mut raw, id, args, dry)?,
@@ -155,8 +155,55 @@ struct Fields {
     input: Map<String, Value>,
 }
 
-fn fields(raw: &Value, args: &Args) -> Result<Result<Fields, Done>, String> {
+fn fields(raw: &Value, args: &Args, now: DateTime<Utc>) -> Result<Result<Fields, Done>, String> {
     let mut f = Fields { seed: Map::new(), input: Map::new() };
+    // linearctl 0.6.0's --cycle, --estimate and --due-date, each with none.
+    if let Some(c) = args.one("cycle") {
+        if c == "none" {
+            f.input.insert("cycleId".into(), Value::Null);
+            f.seed.insert("cycle".into(), Value::Null);
+        } else {
+            let cycles: Vec<i64> =
+                raw["cycles"].as_array().into_iter().flatten().filter_map(|c| c["number"].as_i64()).collect();
+            let current = Workspace::from_seed(raw.clone(), now).current_cycle().and_then(|v| v.as_i64());
+            let n = match c {
+                "current" => current,
+                "next" => current.map(|x| x + 1),
+                "previous" => current.map(|x| x - 1),
+                other => other
+                    .parse()
+                    .ok()
+                    .or_else(|| cycles.iter().copied().find(|n| uuid(&format!("cycle {n}")) == other)),
+            };
+            let Some(n) = n.filter(|n| cycles.contains(n)) else { return Ok(Err(not_found("cycle", c))) };
+            f.input.insert("cycleId".into(), json!(uuid(&format!("cycle {n}"))));
+            f.seed.insert("cycle".into(), json!(n));
+        }
+    }
+    if let Some(e) = args.one("estimate") {
+        let v = if e == "none" {
+            Value::Null
+        } else {
+            json!(e.parse::<i64>().map_err(|_| format!("--estimate: not a number or none: {e}"))?)
+        };
+        f.input.insert("estimate".into(), v.clone());
+        f.seed.insert("estimate".into(), v);
+    }
+    if let Some(d) = args.one("due-date") {
+        let (input, seed) = if d == "none" {
+            (Value::Null, Value::Null)
+        } else {
+            let day = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d")
+                .map_err(|_| format!("--due-date: not YYYY-MM-DD or none: {d}"))?;
+            // The seed's dates move with "now"; store it where it lands on d.
+            let anchor = DateTime::parse_from_rfc3339(raw["anchor"].as_str().unwrap_or_default())
+                .map_or(now, |a| a.with_timezone(&Utc));
+            let back = day - chrono::Duration::days((now - anchor).num_days());
+            (json!(d), json!(back.format("%Y-%m-%d").to_string()))
+        };
+        f.input.insert("dueDate".into(), input);
+        f.seed.insert("dueDate".into(), seed);
+    }
     if let Some(t) = args.one("title") {
         f.seed.insert("title".into(), json!(t));
         f.input.insert("title".into(), json!(t));
@@ -225,6 +272,9 @@ fn fields(raw: &Value, args: &Args) -> Result<Result<Fields, Done>, String> {
 }
 
 const UPDATE_FLAGS: &[&str] = &[
+    "cycle",
+    "estimate",
+    "due-date",
     "title",
     "description",
     "description-file",
@@ -240,9 +290,9 @@ const UPDATE_FLAGS: &[&str] = &[
     "yes",
 ];
 
-fn update(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, String> {
+fn update(raw: &mut Value, id: &str, args: &Args, dry: bool, now: DateTime<Utc>) -> Result<Done, String> {
     args.only(UPDATE_FLAGS)?;
-    let f = match fields(raw, args)? {
+    let f = match fields(raw, args, now)? {
         Ok(f) => f,
         Err(d) => return Ok(d),
     };
@@ -287,6 +337,7 @@ fn update(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, Str
             seed.insert(k.clone(), v.clone());
             let input_key = match k.as_str() {
                 "state" => "stateId",
+                "cycle" => "cycleId",
                 "assignee" => "assigneeId",
                 "labels" => "labelIds",
                 "project" => "projectId",
@@ -335,6 +386,9 @@ fn update(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, Str
 }
 
 const CREATE_FLAGS: &[&str] = &[
+    "cycle",
+    "estimate",
+    "due-date",
     "team",
     "title",
     "description",
@@ -350,7 +404,7 @@ const CREATE_FLAGS: &[&str] = &[
     "yes",
 ];
 
-fn create(raw: &mut Value, args: &Args, dry: bool) -> Result<Done, String> {
+fn create(raw: &mut Value, args: &Args, dry: bool, now: DateTime<Utc>) -> Result<Done, String> {
     args.only(CREATE_FLAGS)?;
     let team = args.one("team").ok_or("--team is required")?.to_string();
     let title = args.one("title").filter(|t| !t.trim().is_empty()).ok_or("--title is required")?.to_string();
@@ -368,7 +422,7 @@ fn create(raw: &mut Value, args: &Args, dry: bool) -> Result<Done, String> {
         let doc = json!({"changed": false, "dryRun": dry, "id": id});
         return Ok(Done::Doc { doc, changed: false, item: Item::Issue(ident) });
     }
-    let f = match fields(raw, args)? {
+    let f = match fields(raw, args, now)? {
         Ok(f) => f,
         Err(d) => return Ok(d),
     };
@@ -734,6 +788,58 @@ mod tests {
         assert_eq!(go("comment create ENG-158 --body x --yes --json", None).0, 2);
         assert_eq!(go("comment create ENG-999 --body x --dry-run --json", None).0, 1);
         assert_eq!(go("comment create ENG-158 --body x --id abc --yes --json", None).0, 1, "read-only");
+    }
+
+    #[test]
+    fn cycle_estimate_and_due_date() {
+        let st = state("ced");
+        let (_, dry) = go(
+            "issue update ENG-142 --cycle next --estimate 5 --due-date 2026-12-01 --dry-run --json",
+            Some(&st),
+        );
+        assert_eq!(dry["input"]["cycleId"], json!(uuid("cycle 25")));
+        assert_eq!(dry["input"]["estimate"], 5);
+        assert_eq!(dry["input"]["dueDate"], "2026-12-01");
+        assert_eq!(
+            go(
+                "issue update ENG-142 --cycle next --estimate 5 --due-date 2026-12-01 --yes --json",
+                Some(&st)
+            )
+            .0,
+            0
+        );
+        let (_, show) = go("issue show ENG-142 --json", Some(&st));
+        assert_eq!(show["issue"]["cycle"]["number"], 25);
+        assert_eq!(show["issue"]["estimate"], 5);
+        assert_eq!(show["issue"]["dueDate"], "2026-12-01", "where it was set, after the shift");
+        assert_eq!(
+            go("issue update ENG-142 --due-date 2026-12-01 --yes --json", Some(&st)).1["changed"],
+            false
+        );
+        assert_eq!(
+            go("issue update ENG-142 --cycle none --estimate none --due-date none --yes --json", Some(&st)).0,
+            0
+        );
+        let (_, show) = go("issue show ENG-142 --json", Some(&st));
+        assert!(
+            show["issue"]["cycle"].is_null()
+                && show["issue"]["estimate"].is_null()
+                && show["issue"]["dueDate"].is_null()
+        );
+        for (cmd, code) in [
+            ("issue update ENG-142 --cycle 99 --dry-run --json", 1),
+            ("issue update ENG-142 --estimate lots --dry-run --json", 2),
+            ("issue update ENG-142 --due-date tomorrow --dry-run --json", 2),
+        ] {
+            assert_eq!(go(cmd, None).0, code, "{cmd}");
+        }
+        let (_, prev) = go("issue update ENG-142 --cycle previous --dry-run --json", None);
+        assert_eq!(prev["input"]["cycleId"], json!(uuid("cycle 23")));
+        let (_, by_id) =
+            go(&format!("issue update ENG-142 --cycle {} --dry-run --json", uuid("cycle 23")), None);
+        assert_eq!(by_id["input"]["cycleId"], json!(uuid("cycle 23")));
+        let (_, current) = go("issue create --team ENG --title x --cycle current --dry-run --json", None);
+        assert_eq!(current["input"]["cycleId"], json!(uuid("cycle 24")));
     }
 
     #[test]
