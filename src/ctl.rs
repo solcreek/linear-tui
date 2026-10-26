@@ -385,14 +385,14 @@ mod tests {
         assert_valid(&auth_status_argv());
     }
 
-    fn describe_0_2_1() -> Describe {
-        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.2.1.json")).unwrap()
+    fn describe_0_3_0() -> Describe {
+        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.3.0.json")).unwrap()
     }
 
     fn assert_valid_in_both(argv: &[String]) {
         assert_valid(argv);
-        let problems = describe_0_2_1().check_argv(argv);
-        assert!(problems.is_empty(), "0.2.1: {argv:?}: {problems:?}");
+        let problems = describe_0_3_0().check_argv(argv);
+        assert!(problems.is_empty(), "0.3.0: {argv:?}: {problems:?}");
     }
 
     #[test]
