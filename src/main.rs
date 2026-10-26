@@ -237,7 +237,18 @@ fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
     };
     match mode {
         Images::Off => None,
-        Images::Auto => Some(make()),
+        Images::Auto if cell.is_some() => Some(make()),
+        Images::Auto => Some(match Picker::from_query_stdio() {
+            Ok(mut picker) => {
+                if picker.protocol_type() == ProtocolType::Halfblocks
+                    && images::herdr_draws_kitty(|k| std::env::var(k).ok())
+                {
+                    picker.set_protocol_type(ProtocolType::Kitty);
+                }
+                picker
+            }
+            Err(_) => Picker::halfblocks(),
+        }),
         // Half blocks need no terminal support, so no query.
         Images::Force(ProtocolType::Halfblocks) if cell.is_none() => Some(Picker::halfblocks()),
         Images::Force(p) => {

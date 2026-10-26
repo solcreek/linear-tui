@@ -314,10 +314,30 @@ pub fn cache_dir(org: &str) -> Option<PathBuf> {
     Some(base.join("linear-tui").join(if org.is_empty() { "default".into() } else { org }).join("images"))
 }
 
+/// Whether this is a herdr pane that shows kitty graphics though detection
+/// says otherwise. herdr 0.9.5 answers the graphics query with no support in
+/// an overlay, which draws kitty images all the same; a popup (the one pane
+/// with no `HERDR_PANE_ID`) really drops them, so it keeps what was detected.
+pub fn herdr_draws_kitty(var: impl Fn(&str) -> Option<String>) -> bool {
+    var("HERDR_ENV").as_deref() == Some("1") && var("HERDR_PANE_ID").is_some_and(|p| !p.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn herdr_panes_but_not_popups_draw_kitty() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        assert!(herdr_draws_kitty(env(&[("HERDR_ENV", "1"), ("HERDR_PANE_ID", "w1:p2")])));
+        assert!(!herdr_draws_kitty(env(&[("HERDR_ENV", "1")])), "a popup");
+        assert!(!herdr_draws_kitty(env(&[("HERDR_ENV", "1"), ("HERDR_PANE_ID", "")])));
+        assert!(!herdr_draws_kitty(env(&[("HERDR_PANE_ID", "w1:p2")])), "not herdr");
+        assert!(!herdr_draws_kitty(env(&[("HERDR_ENV", "0"), ("HERDR_PANE_ID", "w1:p2")])));
+    }
 
     const DEMO_URL: &str = "https://uploads.linear.app/demo/checkout-error.png?signature=demo";
 
