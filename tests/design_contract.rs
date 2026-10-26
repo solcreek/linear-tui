@@ -3,7 +3,7 @@
 use linear_tui::contract::Describe;
 
 const SNAPSHOT: &str = include_str!("fixtures/linearctl-describe-0.1.0.json");
-const SNAPSHOT_0_2_0: &str = include_str!("fixtures/linearctl-describe-0.2.0.json");
+const SNAPSHOT_0_2_1: &str = include_str!("fixtures/linearctl-describe-0.2.1.json");
 const DESIGN: &str = include_str!("../docs/design.md");
 
 fn assert_design_matches(d: &Describe) {
@@ -28,16 +28,16 @@ fn design_matches_the_0_1_0_snapshot() {
 }
 
 #[test]
-fn design_matches_the_0_2_0_snapshot() {
-    let d = Describe::from_json(SNAPSHOT_0_2_0).unwrap();
-    assert_eq!(d.version, "0.2.0");
+fn design_matches_the_0_2_1_snapshot() {
+    let d = Describe::from_json(SNAPSHOT_0_2_1).unwrap();
+    assert_eq!(d.version, "0.2.1");
     assert_design_matches(&d);
 }
 
 #[test]
 fn the_app_works_with_both_releases() {
     use linear_tui::app::{default_views, missing};
-    for snap in [SNAPSHOT, SNAPSHOT_0_2_0] {
+    for snap in [SNAPSHOT, SNAPSHOT_0_2_1] {
         let d = Describe::from_json(snap).unwrap();
         assert!(
             missing(&d, &default_views()).is_empty(),

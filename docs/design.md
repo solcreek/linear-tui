@@ -47,7 +47,7 @@ Modules, each tested as it is written (`cargo llvm-cov`: 97% of lines):
 
 | module | does | tested by |
 |---|---|---|
-| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.2.0 snapshots |
+| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.2.1 snapshots |
 | `ctl` | argv builders; `Runner` spawns with a deadline and maps exit codes; `Exec` | unit; the fake binary with injected faults |
 | `model` | serde types for every result; unknown fields ignored, missing ones defaulted | fixtures from the fake and from linearctl 0.1.0 |
 | `sanitize` | strips control, C1 and bidi characters from all Linear text | unit |
@@ -456,7 +456,7 @@ renderer**, not an off-the-shelf widget.
 Tests ship with each change, in Rust only; CI fails below 90% line coverage
 (`cargo llvm-cov`; 97% now, the uncovered part is mostly the terminal loop).
 
-- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.2.0
+- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.2.1
   (`tests/fixtures/`) are checked against every argv the app builds and against
   this doc. `LINEARCTL_LIVE=linearctl cargo test` checks the installed one.
 - **Fake**: `fake-linearctl` serves `demo/workspace.json` in linearctl's shapes,
