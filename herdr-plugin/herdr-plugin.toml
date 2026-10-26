@@ -1,0 +1,35 @@
+id = "solcreek.linear-tui"
+name = "linear-tui"
+version = "0.1.0"
+# Panes opened with --env; tested against a 0.9.1 server.
+min_herdr_version = "0.9.1"
+description = "Linear in a pane: browse issues, and Ctrl+click a Linear issue link to open it in linear-tui."
+platforms = ["linux", "macos"]
+
+# open.sh resolves the binaries (herdr starts panes with a short PATH) and
+# passes the issue to open, if any, in LINEAR_TUI_ISSUE.
+[[panes]]
+id = "tui"
+title = "linear-tui"
+placement = "overlay"
+command = ["sh", "-c", "exec \"${LINEAR_TUI_BIN:-linear-tui}\" ${LINEAR_TUI_ISSUE:+\"$LINEAR_TUI_ISSUE\"}"]
+
+[[actions]]
+id = "open"
+title = "linear-tui: open"
+description = "Open linear-tui over the focused pane"
+contexts = ["pane", "workspace"]
+command = ["sh", "open.sh"]
+
+[[actions]]
+id = "open-link"
+title = "linear-tui: open a Linear issue link"
+contexts = ["pane"]
+command = ["sh", "open.sh", "link"]
+
+# Ctrl+click on a Linear issue URL opens it in linear-tui, not the browser.
+[[link_handlers]]
+id = "issue"
+title = "Open in linear-tui"
+pattern = "^https://linear\\.app/[^/]+/issue/[A-Za-z][A-Za-z0-9]*-[0-9]+([/?#].*)?$"
+action = "open-link"

@@ -30,6 +30,19 @@ fn unknown_arguments_are_usage_errors() {
 }
 
 #[test]
+fn an_issue_argument_must_name_an_issue() {
+    let out = tui(&["https://linear.app/northwind/project/roadmap"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).starts_with(
+        "linear-tui: not an issue identifier or Linear issue URL: https://linear.app/northwind/project/roadmap"
+    ));
+    assert_eq!(tui(&["ENG-1", "ENG-2"]).status.code(), Some(2), "one issue only");
+    // A good one is parsed, then the missing linearctl stops it.
+    let out = tui(&["--linearctl", "/nonexistent/linearctl", "eng-142"]);
+    assert_eq!(out.status.code(), Some(1));
+}
+
+#[test]
 fn a_missing_linearctl_fails_before_the_terminal() {
     let out = tui(&["--linearctl", "/nonexistent/linearctl"]);
     assert_eq!(out.status.code(), Some(1));
