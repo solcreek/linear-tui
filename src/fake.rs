@@ -991,7 +991,10 @@ mod tests {
         assert_eq!(views["items"][0]["modelName"], "Issue");
         assert_eq!(views["items"][0]["owner"]["name"], "Maya Patel");
         let ids = |cmd: &str| idents(&json_of(cmd));
-        assert_eq!(ids("issue list --view 'Checkout bugs' --json"), ["ENG-158", "ENG-142", "ENG-143", "ENG-144"]);
+        assert_eq!(
+            ids("issue list --view 'Checkout bugs' --json"),
+            ["ENG-158", "ENG-142", "ENG-143", "ENG-144"]
+        );
         let id = views["items"][1]["id"].as_str().unwrap().to_string();
         assert_eq!(ids(&format!("issue list --view {id} --json")).len(), 2);
         assert_eq!(
