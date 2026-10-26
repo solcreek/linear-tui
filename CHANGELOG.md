@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- With linearctl 0.6.0, the new-issue and edit forms set the cycle, the
+  estimate and the due date (typed as YYYY-MM-DD, or today, a week or a month
+  on); editing can clear each, and undo puts them back.
 - With linearctl 0.6.0: `o` also sorts by due date, title and status, and
   the filter panel has creator, due after, due before and reverse rows (a due
   date can be typed as YYYY-MM-DD).

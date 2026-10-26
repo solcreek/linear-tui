@@ -27,6 +27,9 @@ fn form_of(i: &IssueDetail) -> Form {
         assignee: row.assignee.as_ref().map(|a| (a.email.clone(), a.name.clone())),
         labels: row.labels.iter().map(|l| l.name.clone()).collect(),
         project: row.project.as_ref().map(|p| p.name.clone()),
+        cycle: row.cycle.as_ref().map(|c| c.number.to_string()),
+        estimate: i.estimate.map(|e| e.round() as i64),
+        due_date: i.due_date.clone(),
         // As stored in Linear, not as read with --signed-urls.
         description: crate::images::unsign(i.description.as_deref().unwrap_or_default())
             .trim_end()
@@ -161,6 +164,28 @@ impl App {
             let new = f.project.clone().unwrap_or_else(|| "none".into());
             let old = b.project.clone().or_else(|| clear.then(|| "none".into()));
             c.set("project", new.clone(), old, format!("Project: {new}"));
+        }
+        // Cycle, estimate and due date: linearctl 0.6.0, none to clear.
+        let later = [
+            ("cycle", f.cycle.clone(), b.cycle.clone(), "Cycle"),
+            ("estimate", f.estimate.map(|e| e.to_string()), b.estimate.map(|e| e.to_string()), "Estimate"),
+            ("due-date", f.due_date.clone(), b.due_date.clone(), "Due date"),
+        ];
+        for (flag, new, old, name) in later {
+            if new == old {
+                continue;
+            }
+            if !self.at_least(0, 6) {
+                self.status = Some("Cycle, estimate and due date need linearctl 0.6.0 or later.".into());
+                return Vec::new();
+            }
+            let shown = new.clone().unwrap_or_else(|| "none".into());
+            c.set(
+                flag,
+                shown.clone(),
+                Some(old.unwrap_or_else(|| "none".into())),
+                format!("{name}: {shown}"),
+            );
         }
         let Changes { mut flags, undo, mut lines } = c;
         let text = (f.description != b.description)
@@ -358,6 +383,67 @@ pub(crate) mod tests {
         assert_eq!(i.row.priority, 1);
         assert_eq!(i.row.labels.len(), 2);
         assert!(i.description.unwrap().starts_with("Customers who paste"));
+    }
+
+    #[test]
+    fn cycle_estimate_and_due_date() {
+        let mut w = W::new("ced");
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Char('e'));
+        let f = w.app.form.as_ref().unwrap();
+        assert_eq!((f.cycle.as_deref(), f.estimate, f.due_date.as_deref()), (Some("24"), Some(2), None));
+        w.to("Cycle");
+        w.key(KeyCode::Enter);
+        w.chars("next");
+        w.key(KeyCode::Enter);
+        w.to("Estimate");
+        w.key(KeyCode::Enter);
+        w.chars("5 p");
+        w.key(KeyCode::Enter);
+        w.to("Due date");
+        w.key(KeyCode::Enter);
+        w.chars("2026-11-30");
+        w.key(KeyCode::Enter);
+        w.ctrl('s');
+        assert_eq!(w.confirm_lines(), ["  Cycle: next", "  Estimate: 5", "  Due date: 2026-11-30"]);
+        w.key(KeyCode::Char('y'));
+        let i = w.show("ENG-142");
+        assert_eq!(
+            (i.row.cycle.unwrap().number, i.estimate, i.due_date.as_deref()),
+            (25, Some(5.0), Some("2026-11-30"))
+        );
+        w.key(KeyCode::Char('u'));
+        let i = w.show("ENG-142");
+        assert_eq!((i.row.cycle.unwrap().number, i.estimate, i.due_date), (24, Some(2.0), None));
+        // Cleared, each to none.
+        w.key(KeyCode::Char('e'));
+        let f = w.app.form.as_mut().unwrap();
+        f.cycle = None;
+        f.estimate = None;
+        w.ctrl('s');
+        assert_eq!(w.confirm_lines(), ["  Cycle: none", "  Estimate: none"]);
+        w.key(KeyCode::Char('y'));
+        let i = w.show("ENG-142");
+        assert!(i.row.cycle.is_none() && i.estimate.is_none());
+        // Before linearctl 0.6.0: refused.
+        w.app.describe = Some(old_0_4_0());
+        w.key(KeyCode::Char('e'));
+        w.app.form.as_mut().unwrap().estimate = Some(8);
+        w.ctrl('s');
+        assert_eq!(
+            w.app.status.as_deref(),
+            Some("Cycle, estimate and due date need linearctl 0.6.0 or later.")
+        );
+        w.key(KeyCode::Esc);
+        w.key(KeyCode::Esc);
+        w.key(KeyCode::Char('c'));
+        w.chars("x");
+        w.app.form.as_mut().unwrap().due_date = Some("2026-12-01".into());
+        w.ctrl('s');
+        assert_eq!(
+            w.app.status.as_deref(),
+            Some("Cycle, estimate and due date need linearctl 0.6.0 or later.")
+        );
     }
 
     #[test]

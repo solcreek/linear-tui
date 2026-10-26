@@ -91,6 +91,9 @@ pub enum Field {
     Assignee,
     Labels,
     Project,
+    Cycle,
+    Estimate,
+    Due,
 }
 
 /// Where a picker's choice goes.
@@ -167,8 +170,19 @@ pub enum Overlay {
 }
 
 /// The create form's fields, in order.
-pub const FORM_FIELDS: [&str; 8] =
-    ["Title", "Team", "Status", "Priority", "Assignee", "Labels", "Project", "Description"];
+pub const FORM_FIELDS: [&str; 11] = [
+    "Title",
+    "Team",
+    "Status",
+    "Priority",
+    "Assignee",
+    "Labels",
+    "Project",
+    "Cycle",
+    "Estimate",
+    "Due date",
+    "Description",
+];
 
 /// A new issue being written.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -186,6 +200,10 @@ pub struct Form {
     pub description: String,
     /// Index into [`FORM_FIELDS`].
     pub field: usize,
+    /// linearctl 0.6.0: current, next or a cycle number; points; YYYY-MM-DD.
+    pub cycle: Option<String>,
+    pub estimate: Option<i64>,
+    pub due_date: Option<String>,
     /// When it edits an issue (`e`) rather than making one.
     pub editing: Option<Box<super::edit::Editing>>,
 }
@@ -226,7 +244,8 @@ fn lookup_for(field: Field) -> Option<Lookup> {
         Field::Assignee => Some(Lookup::Users),
         Field::Labels => Some(Lookup::Labels),
         Field::Project => Some(Lookup::Projects),
-        Field::Priority => None,
+        Field::Cycle => Some(Lookup::Cycles),
+        Field::Priority | Field::Estimate | Field::Due => None,
     }
 }
 
@@ -238,6 +257,9 @@ fn title_of(field: Field) -> &'static str {
         Field::Assignee => "Assignee",
         Field::Labels => "Labels",
         Field::Project => "Project",
+        Field::Cycle => "Cycle",
+        Field::Estimate => "Estimate",
+        Field::Due => "Due date",
     }
 }
 
@@ -412,6 +434,48 @@ impl App {
                     .iter()
                     .map(|p| item(&p.name, &p.name, None, "", current.as_deref() == Some(&p.name)))
                     .collect()
+            }
+            // Only the form sets these (linearctl 0.6.0).
+            Field::Cycle => {
+                let current = form.and_then(|f| f.cycle.clone());
+                let on = |v: &str| current.as_deref() == Some(v);
+                let mut v = vec![
+                    item("No cycle", "", None, "", current.is_none()),
+                    item("Current", "current", None, "", on("current")),
+                    item("Next", "next", None, "", on("next")),
+                ];
+                v.extend(list(Lookup::Cycles).iter().filter_map(|c| {
+                    let n = c.number?.to_string();
+                    Some(item(&format!("Cycle {n}"), &n, None, "", on(&n)))
+                }));
+                v
+            }
+            Field::Estimate => {
+                let current = form.and_then(|f| f.estimate);
+                let mut v = vec![item("No estimate", "", None, "", current.is_none())];
+                let mut points = vec![1, 2, 3, 5, 8];
+                if let Some(c) = current.filter(|c| !points.contains(c)) {
+                    points.push(c);
+                }
+                v.extend(
+                    points
+                        .iter()
+                        .map(|p| item(&format!("{p} points"), &p.to_string(), None, "", current == Some(*p))),
+                );
+                v
+            }
+            Field::Due => {
+                let current = form.and_then(|f| f.due_date.clone());
+                let mut v = vec![item("No due date", "", None, "", current.is_none())];
+                for (label, n) in [("Today", 0), ("In 7 days", 7), ("In 30 days", 30)] {
+                    let d = (self.now + chrono::Duration::days(n)).format("%Y-%m-%d").to_string();
+                    let chosen = current.as_deref() == Some(d.as_str());
+                    v.push(item(label, &d, None, &d, chosen));
+                }
+                if let Some(c) = current.filter(|c| !v.iter().any(|i| &i.value == c)) {
+                    v.push(item(&c, &c, None, "", true));
+                }
+                v
             }
         }
     }
@@ -724,6 +788,13 @@ impl App {
                 let form = self.form.as_mut().expect("a form picker has a form");
                 match field {
                     Field::Labels => form.labels = chosen,
+                    Field::Due if current.is_none() => {
+                        // A date typed into the picker.
+                        let q = p.query.trim();
+                        if chrono::NaiveDate::parse_from_str(q, "%Y-%m-%d").is_ok() {
+                            form.due_date = Some(q.to_string());
+                        }
+                    }
                     _ => {
                         let Some(item) = current else { return Vec::new() };
                         match field {
@@ -740,6 +811,9 @@ impl App {
                             Field::Priority => form.priority = item.value.parse().unwrap_or(0),
                             Field::Assignee if item.value == "none" => form.assignee = None,
                             Field::Assignee => form.assignee = Some((item.value, item.label)),
+                            Field::Cycle => form.cycle = Some(item.value).filter(|v| !v.is_empty()),
+                            Field::Estimate => form.estimate = item.value.parse().ok(),
+                            Field::Due => form.due_date = Some(item.value).filter(|v| !v.is_empty()),
                             _ => form.project = Some(item.value),
                         }
                     }
@@ -787,6 +861,9 @@ impl App {
                     "Priority" => Field::Priority,
                     "Assignee" => Field::Assignee,
                     "Labels" => Field::Labels,
+                    "Cycle" => Field::Cycle,
+                    "Estimate" => Field::Estimate,
+                    "Due date" => Field::Due,
                     _ => Field::Project,
                 };
                 if f != Field::Team && f != Field::Priority && form.team.is_empty() {
@@ -808,6 +885,12 @@ impl App {
             self.status = Some("A new issue needs a team and a title.".into());
             return Vec::new();
         }
+        let later = f.cycle.is_some() || f.estimate.is_some() || f.due_date.is_some();
+        if later && !self.at_least(0, 6) {
+            self.status = Some("Cycle, estimate and due date need linearctl 0.6.0 or later.".into());
+            return Vec::new();
+        }
+        let estimate = f.estimate.map(|e| e.to_string());
         let priority = f.priority.to_string();
         let mut flags: Vec<(&str, &str)> = vec![("team", &f.team), ("title", f.title.trim())];
         if f.priority != 0 {
@@ -822,6 +905,15 @@ impl App {
         flags.extend(f.labels.iter().map(|l| ("label", l.as_str())));
         if let Some(p) = &f.project {
             flags.push(("project", p));
+        }
+        if let Some(c) = &f.cycle {
+            flags.push(("cycle", c));
+        }
+        if let Some(e) = &estimate {
+            flags.push(("estimate", e));
+        }
+        if let Some(d) = &f.due_date {
+            flags.push(("due-date", d));
         }
         let argv = ctl::create_argv(&flags, &f.id, Mode::DryRun);
         let text = (!f.description.trim().is_empty())
@@ -842,6 +934,15 @@ impl App {
         }
         if let Some(p) = &f.project {
             extra.push(p.clone());
+        }
+        if let Some(c) = &f.cycle {
+            extra.push(format!("cycle {c}"));
+        }
+        if let Some(e) = f.estimate {
+            extra.push(format!("{e} points"));
+        }
+        if let Some(d) = &f.due_date {
+            extra.push(format!("due {d}"));
         }
         if !extra.is_empty() {
             summary.push(format!("  {}", extra.join("  ·  ")));
@@ -1670,6 +1771,18 @@ mod tests {
         w.key(KeyCode::Enter);
         w.chars("checkout");
         w.key(KeyCode::Enter);
+        w.key(KeyCode::Tab); // Cycle
+        w.key(KeyCode::Enter);
+        w.chars("next");
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Tab); // Estimate
+        w.key(KeyCode::Enter);
+        w.chars("3 p");
+        w.key(KeyCode::Enter);
+        w.key(KeyCode::Tab); // Due date
+        w.key(KeyCode::Enter);
+        w.chars("2026-12-24");
+        w.key(KeyCode::Enter);
         w.key(KeyCode::Tab); // Description
         w.key(KeyCode::Enter);
         w.edited(Some("Sell and redeem gift cards.\n"));
@@ -1680,6 +1793,10 @@ mod tests {
         );
         assert_eq!(f.assignee, Some(("me".into(), "Me".into())));
         assert_eq!(f.description, "Sell and redeem gift cards.");
+        assert_eq!(
+            (f.cycle.as_deref(), f.estimate, f.due_date.as_deref()),
+            (Some("next"), Some(3), Some("2026-12-24"))
+        );
         w.key(KeyCode::BackTab);
         w.key(KeyCode::Up);
         w.ctrl('s');
@@ -1687,7 +1804,11 @@ mod tests {
         assert_eq!(c.title, "Create this issue?");
         assert_eq!(
             c.lines[..3],
-            ["  Gift cards at checkout", "  Team ENG  ·  High", "  Todo  ·  Me  ·  Feature  ·  Checkout v2"]
+            [
+                "  Gift cards at checkout",
+                "  Team ENG  ·  High",
+                "  Todo  ·  Me  ·  Feature  ·  Checkout v2  ·  cycle next  ·  3 points  ·  due 2026-12-24"
+            ]
         );
         assert!(c.command.contains("--title 'Gift cards at checkout'"), "{}", c.command);
         let id = w.app.form.as_ref().unwrap().id.clone();
@@ -1697,6 +1818,8 @@ mod tests {
         assert_eq!(w.app.focus, Focus::Detail);
         let shown = w.app.detail.as_ref().unwrap().issue.as_ref().unwrap();
         assert_eq!(shown.row.id, id, "the id the form made");
+        assert_eq!(shown.row.cycle.as_ref().unwrap().number, 25);
+        assert_eq!((shown.estimate, shown.due_date.as_deref()), (Some(3.0), Some("2026-12-24")));
         assert_eq!(shown.description.as_deref(), Some("Sell and redeem gift cards."));
         assert_eq!(w.app.rows[0].identifier, "ENG-159");
     }

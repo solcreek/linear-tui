@@ -303,6 +303,12 @@ fn render_form(form: &Form, f: &mut Frame, area: Rect) {
             "Assignee" => value(form.assignee.as_ref().map(|a| a.1.clone()), "unassigned"),
             "Labels" => value(Some(form.labels.join(", ")), "none"),
             "Project" => value(form.project.clone(), "none"),
+            "Cycle" => value(
+                form.cycle.clone().map(|c| if c.parse::<i64>().is_ok() { format!("Cycle {c}") } else { c }),
+                "none",
+            ),
+            "Estimate" => value(form.estimate.map(|e| format!("{e} points")), "none"),
+            "Due date" => value(form.due_date.clone(), "none"),
             _ => value(form.description.lines().next().map(str::to_string), "enter opens $EDITOR"),
         };
         lines.push(Line::from(vec![label(name, i), v]));
