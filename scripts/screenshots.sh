@@ -51,3 +51,5 @@ shot() {
 shot list 132x22 2 j
 shot detail 160x46 Enter j j j j j j j j j j
 shot comments 100x40 Enter G
+shot edit 132x22 2 s
+shot create 132x24 c Gift Space cards Space at Space checkout Tab Tab Tab Enter Up Up Up Enter C-s

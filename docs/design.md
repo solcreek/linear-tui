@@ -477,12 +477,15 @@ Tests ship with each change, in Rust only; CI fails below 90% line coverage
 
 ## Milestones
 
-1. Skeleton: runner, describe check, issue list with views, detail without images.
-2. Markdown renderer and comments.
-3. Images.
-4. Filter panel, search, lookups cache.
-5. Writes: quick edits, create, edit, comment, archive.
-6. Live updates and `serve` once linearctl has them.
+1. Skeleton: runner, describe check, issue list with views, detail. *Done.*
+2. Markdown renderer and comments. *Done.*
+3. Images. *Done.*
+4. Search *(done)*; filter panel, sort, configured views.
+5. Writes: quick edits, create, comment, description, archive *(done)*; the full
+   edit form, undo, thread replies.
+6. Live updates with `watch` and calls over `serve --stdio` (both in linearctl
+   0.2.0).
+7. Release: per-platform binaries on npm as `linear-tui`, like linearctl's.
 
 ## What linearctl lacks (proposed)
 

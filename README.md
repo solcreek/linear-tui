@@ -20,16 +20,20 @@ Rendered with [termshot](https://github.com/momiji-rs/termshot) by
 
 ## Status
 
-Early and read-only: the issue list with views, paging and a filter, and the
-issue detail with Markdown, inline images (kitty, Sixel, iTerm2 or half
-blocks), sub-issues, relations, attachments and threaded comments. Search and
-writes (create, edit, comment) come next; see
+Early, before the first release: the issue list with views, paging, a filter
+and full-text search; the issue detail with Markdown, inline images (kitty,
+Sixel, iTerm2 or half blocks), sub-issues, relations, attachments and threaded
+comments; and writes: state, priority, assignee, labels and project through
+pickers, comments and descriptions in `$EDITOR`, archiving, and a form for new
+issues. Every write is a linearctl dry run first, and the confirm dialog shows
+the exact command. Live updates come next; see
 [docs/design.md](docs/design.md) for the whole plan. The npm package
 `linear-tui` is a name placeholder until the first release.
 
 | | |
 |---|---|
 | ![The Active view: priority, identifier, state, title, assignee, coloured labels and how long ago each issue changed](docs/images/list.png) | ![An issue scrolled to its threaded comments](docs/images/comments.png) |
+| ![The status picker over the Active view, on Todo for the selected issue](docs/images/edit.png) | ![Creating an issue: the confirm dialog shows the exact linearctl issue create command it will run](docs/images/create.png) |
 
 ## Try it
 
@@ -51,8 +55,10 @@ target/debug/linear-tui
 ```
 
 Keys: `j`/`k` move, `enter` opens, `esc` goes back, `tab` or `1`–`4` switch views,
-`/` filters, `]`/`[` step through issues in the detail, `O` opens in the browser,
-`?` lists the rest.
+`/` filters (`enter` searches every issue), `]`/`[` step through issues in the
+detail, `s` `p` `a` `L` `P` set state, priority, assignee, labels, project, `c`
+creates (or comments, in an issue), `E` edits the description, `?` lists the
+rest. The demo takes no writes, but shows every dry run and confirm dialog.
 
 ## Tests
 
