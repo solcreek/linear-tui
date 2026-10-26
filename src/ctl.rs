@@ -13,6 +13,12 @@ use serde_json::Value;
 use crate::model::ErrorDoc;
 use crate::sanitize::clean_json;
 
+mod serve;
+mod watch;
+
+pub use serve::Serve;
+pub use watch::{WatchLine, Watcher};
+
 /// The `issue list` fields the list screen shows.
 pub const ROW_FIELDS: &str = "id,identifier,title,priority,priorityLabel,url,createdAt,updatedAt,state,assignee,team,project,cycle,labels";
 
@@ -224,7 +230,7 @@ impl Exec for Runner {
 }
 
 /// Run and parse into `T`.
-pub fn run_as<T: DeserializeOwned>(e: &impl Exec, argv: &[String]) -> Result<T, Failure> {
+pub fn run_as<T: DeserializeOwned>(e: &(impl Exec + ?Sized), argv: &[String]) -> Result<T, Failure> {
     let v = e.exec(argv)?;
     serde_json::from_value(v).map_err(|e| Failure::BadOutput(e.to_string()))
 }

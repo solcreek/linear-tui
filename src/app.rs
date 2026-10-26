@@ -168,7 +168,7 @@ pub enum Request {
 
 impl Request {
     /// Run it (blocking) and turn the answer into the message for `update`.
-    pub fn run(self, runner: &impl ctl::Exec) -> Msg {
+    pub fn run(self, runner: &(impl ctl::Exec + ?Sized)) -> Msg {
         match self {
             Request::List {
                 generation,
@@ -211,7 +211,11 @@ impl Request {
 /// Run a write, its long text in a private temporary file named by
 /// `--description-file` / `--body-file` (linearctl's serve mode takes no
 /// stdin, and argv shows in `ps`).
-fn run_write(runner: &impl ctl::Exec, argv: &[String], text: Option<&Text>) -> Result<WriteResult, Failure> {
+fn run_write(
+    runner: &(impl ctl::Exec + ?Sized),
+    argv: &[String],
+    text: Option<&Text>,
+) -> Result<WriteResult, Failure> {
     let Some(t) = text else {
         return ctl::run_as(runner, argv);
     };

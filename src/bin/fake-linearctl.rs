@@ -10,7 +10,11 @@ fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let state = std::env::var_os(fake::STATE_ENV).map(std::path::PathBuf::from);
     match argv.first().map(String::as_str) {
-        Some("serve") if argv.iter().any(|a| a == "--stdio") => {
+        // FAKE_LINEARCTL_NO_SERVE: act like a linearctl without serve (0.1.0).
+        Some("serve")
+            if argv.iter().any(|a| a == "--stdio")
+                && std::env::var_os("FAKE_LINEARCTL_NO_SERVE").is_none() =>
+        {
             fake::stream::serve(
                 std::io::stdin().lock(),
                 std::io::stdout().lock(),
