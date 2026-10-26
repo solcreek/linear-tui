@@ -18,9 +18,9 @@ mod writes;
 
 /// The demo workspace.
 pub const SEED: &str = include_str!("../demo/workspace.json");
-/// What `describe` prints: linearctl 0.4.0's command tree. The fake does the
+/// What `describe` prints: linearctl 0.6.0's command tree. The fake does the
 /// commands linear-tui runs, `serve --stdio` and `watch` among them.
-const DESCRIBE: &str = include_str!("../tests/fixtures/linearctl-describe-0.4.0.json");
+const DESCRIBE: &str = include_str!("../tests/fixtures/linearctl-describe-0.6.0.json");
 
 /// One finished command: exit code, stdout, stderr.
 #[derive(Debug, Clone, PartialEq)]
@@ -170,7 +170,7 @@ pub fn run_in(argv: &[String], now: DateTime<Utc>, state: Option<&std::path::Pat
         [] if args.has("version") => {
             return Output {
                 code: 0,
-                stdout: "linearctl 0.4.0 (linear-tui demo)\n".into(),
+                stdout: "linearctl 0.6.0 (linear-tui demo)\n".into(),
                 stderr: String::new(),
             };
         }
@@ -825,9 +825,9 @@ mod tests {
 
     #[test]
     fn version_and_describe() {
-        assert!(go("--version").stdout.starts_with("linearctl 0.4.0"));
+        assert!(go("--version").stdout.starts_with("linearctl 0.6.0"));
         let d = crate::contract::Describe::from_json(&go("describe --json").stdout).unwrap();
-        assert_eq!(d.version, "0.4.0");
+        assert_eq!(d.version, "0.6.0");
     }
 
     #[test]

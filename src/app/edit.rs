@@ -56,7 +56,7 @@ impl Changes {
 
 impl App {
     /// Whether `--project none` clears a project: linearctl 0.6.0 and later
-    /// (0.4.0 has the flag but takes "none" as a project's name).
+    /// (0.4.0 had the flag but took "none" as a project's name).
     pub(super) fn can_clear_project(&self) -> bool {
         let Some(d) = &self.describe else { return true };
         let mut v = d.version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
@@ -217,7 +217,7 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::app::{Msg, Overlay, default_views};
     use crate::fake::InProcess;
@@ -300,6 +300,14 @@ mod tests {
                 other => panic!("no confirm: {other:?}"),
             }
         }
+    }
+
+    /// linearctl 0.4.0: the flags of today, before --project none worked.
+    pub(crate) fn old_0_4_0() -> crate::contract::Describe {
+        let mut v: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/linearctl-describe-0.6.0.json")).unwrap();
+        v["version"] = "0.4.0".into();
+        crate::contract::Describe::from_json(&v.to_string()).unwrap()
     }
 
     #[test]
@@ -398,14 +406,11 @@ mod tests {
         w.key(KeyCode::Char('e'));
         w.app.form.as_mut().unwrap().project = None;
         let d = |s: &str| crate::contract::Describe::from_json(s).unwrap();
-        w.app.describe = Some(d(include_str!("../../tests/fixtures/linearctl-describe-0.4.0.json")));
+        w.app.describe = Some(old_0_4_0());
         assert!(!w.app.can_clear_project());
         w.ctrl('s');
         assert_eq!(w.app.status.as_deref(), Some("Clearing a project needs linearctl 0.6.0 or later."));
-        let mut v: serde_json::Value =
-            serde_json::from_str(include_str!("../../tests/fixtures/linearctl-describe-0.4.0.json")).unwrap();
-        v["version"] = "0.6.0".into();
-        w.app.describe = Some(d(&v.to_string()));
+        w.app.describe = Some(d(include_str!("../../tests/fixtures/linearctl-describe-0.6.0.json")));
         assert!(w.app.can_clear_project());
         w.ctrl('s');
         assert_eq!(w.confirm_lines(), ["  Project: none"]);
@@ -414,7 +419,7 @@ mod tests {
         w.key(KeyCode::Char('u'));
         assert_eq!(w.show("ENG-142").row.project.unwrap().name, "Checkout v2");
         // Setting a project where there was none, with 0.4.0: no undo.
-        w.app.describe = Some(d(include_str!("../../tests/fixtures/linearctl-describe-0.4.0.json")));
+        w.app.describe = Some(old_0_4_0());
         w.key(KeyCode::Esc); // back to the list
         w.key(KeyCode::Char('2'));
         for _ in 0..20 {

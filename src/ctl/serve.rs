@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(answer_outcome(&ok).unwrap(), json!({"a": "xy"}), "sanitized like any result");
         let failed = json!({"id": 1, "exit": 1, "result": {"error": "not found: issue X", "usage": false}, "stdout": null, "stderr": ""});
         assert_eq!(answer_outcome(&failed), Err(Failure::Failed("not found: issue X".into())));
-        let text = json!({"id": 1, "exit": 0, "result": null, "stdout": "linearctl 0.4.0\n", "stderr": ""});
+        let text = json!({"id": 1, "exit": 0, "result": null, "stdout": "linearctl 0.6.0\n", "stderr": ""});
         assert!(matches!(answer_outcome(&text), Err(Failure::BadOutput(_))));
         let odd = json!({"id": 1, "exit": "x"});
         assert!(matches!(answer_outcome(&odd), Err(Failure::Crashed { code: None, .. })));

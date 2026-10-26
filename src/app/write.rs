@@ -693,15 +693,20 @@ impl App {
                     _ => "project",
                 };
                 let what = format!("{} → {}", title_of(field).to_lowercase(), item.label);
-                // The old value; a project cannot be cleared (linearctl
-                // 0.4.0 has no --project none), so setting one is final.
+                // The old value. Clearing a project needs linearctl 0.6.0
+                // (--project none); before that, setting one is final.
+                let clear = self.can_clear_project();
                 let back = match field {
                     Field::State => issue.state.as_ref().map(|s| s.name.clone()),
                     Field::Priority => Some(issue.priority.to_string()),
                     Field::Assignee => {
                         Some(issue.assignee.as_ref().map_or("none".into(), |a| a.email.clone()))
                     }
-                    _ => issue.project.as_ref().map(|p| p.name.clone()),
+                    _ => issue
+                        .project
+                        .as_ref()
+                        .map(|p| p.name.clone())
+                        .or_else(|| clear.then(|| "none".into())),
                 };
                 let undo = back.map(|b| vec![(flag.to_string(), b)]);
                 self.quick(&issue.identifier, &[(flag, &item.value)], what, undo)
@@ -1406,6 +1411,7 @@ mod tests {
     #[test]
     fn a_project_set_where_there_was_none_cannot_be_undone() {
         let mut w = world("undo-project");
+        w.app.describe = Some(crate::app::edit::tests::old_0_4_0());
         w.key(KeyCode::Char('2'));
         while w.app.selected_row().unwrap().identifier != "ENG-152" {
             w.key(KeyCode::Down);
@@ -1424,6 +1430,21 @@ mod tests {
         w.key(KeyCode::Enter);
         w.key(KeyCode::Char('u'));
         assert_eq!(w.row("ENG-152").project.as_ref().unwrap().name, "Mobile 3.0");
+    }
+
+    #[test]
+    fn with_linearctl_0_6_0_a_new_project_is_undone_by_clearing_it() {
+        let mut w = world("undo-project-new");
+        w.key(KeyCode::Char('2'));
+        while w.app.selected_row().unwrap().identifier != "ENG-152" {
+            w.key(KeyCode::Down);
+        }
+        w.key(KeyCode::Char('P'));
+        w.chars("mobile");
+        w.key(KeyCode::Enter);
+        assert_eq!(w.app.notice.as_deref(), Some("ENG-152: project → Mobile 3.0 (u undoes)"));
+        w.key(KeyCode::Char('u'));
+        assert!(w.row("ENG-152").project.is_none());
     }
 
     #[test]

@@ -391,14 +391,14 @@ mod tests {
         assert_valid(&auth_status_argv());
     }
 
-    fn describe_0_4_0() -> Describe {
-        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.4.0.json")).unwrap()
+    fn describe_0_6_0() -> Describe {
+        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.6.0.json")).unwrap()
     }
 
     fn assert_valid_in_both(argv: &[String]) {
         assert_valid(argv);
-        let problems = describe_0_4_0().check_argv(argv);
-        assert!(problems.is_empty(), "0.4.0: {argv:?}: {problems:?}");
+        let problems = describe_0_6_0().check_argv(argv);
+        assert!(problems.is_empty(), "0.6.0: {argv:?}: {problems:?}");
     }
 
     #[test]
@@ -425,11 +425,11 @@ mod tests {
         assert!(c.windows(2).any(|w| w == ["--id", "id-1"]) && c.contains(&"--yes".to_string()));
         assert_valid_in_both(&comment_argv("ENG-142", "id-2", Mode::DryRun));
         let reply = reply_argv("ENG-142", "id-3", "c-1", Mode::DryRun);
-        assert!(describe_0_4_0().check_argv(&reply).is_empty());
+        assert!(describe_0_6_0().check_argv(&reply).is_empty());
         assert!(!describe().check_argv(&reply).is_empty(), "0.1.0 has no --parent");
         assert_valid_in_both(&archive_argv("ENG-142", Mode::Yes));
         for later in [unarchive_argv("ENG-142", Mode::Yes), delete_comment_argv("c-1", Mode::DryRun)] {
-            assert!(describe_0_4_0().check_argv(&later).is_empty(), "{later:?}");
+            assert!(describe_0_6_0().check_argv(&later).is_empty(), "{later:?}");
             assert!(!describe().check_argv(&later).is_empty(), "0.1.0 lacks {later:?}");
         }
         // The text flags the runner appends exist too.
@@ -448,7 +448,7 @@ mod tests {
         let w = watch_argv(&view);
         assert_eq!(w[..5], ["watch", "--assignee", "me", "--state-type", "started"]);
         assert!(!w.contains(&"--sort".to_string()) && !w.contains(&"priority".to_string()));
-        let problems = describe_0_4_0().check_argv(&w);
+        let problems = describe_0_6_0().check_argv(&w);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(!describe().check_argv(&w).is_empty(), "0.1.0 has no watch");
         assert_eq!(watch_argv(&[]), ["watch", "--fields", ROW_FIELDS, "--json"]);
