@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, NaiveDate, SecondsFormat, Utc};
 use serde_json::{Map, Value, json};
 
+mod writes;
+
 /// The demo workspace.
 pub const SEED: &str = include_str!("../demo/workspace.json");
 /// What `describe` prints: linearctl 0.1.0's command tree.
@@ -152,11 +154,20 @@ impl Args {
 
 /// Run one linearctl command line (without the program name) at `now`.
 pub fn run(argv: &[String], now: DateTime<Utc>) -> Output {
+    run_in(argv, now, None)
+}
+
+/// The environment variable naming a file that keeps the demo workspace's
+/// writes; without it, writes are refused as in linearctl's demo mode.
+pub const STATE_ENV: &str = "FAKE_LINEARCTL_STATE";
+
+/// Run with the workspace kept in `state` (created on the first write).
+pub fn run_in(argv: &[String], now: DateTime<Utc>, state: Option<&std::path::Path>) -> Output {
     let args = match Args::parse(argv) {
         Ok(a) => a,
         Err(e) => return Output::usage(&e),
     };
-    let ws = Workspace::load(now);
+    let ws = Workspace::from_seed(writes::load_raw(state), now);
     let words: Vec<&str> = args.words.iter().map(String::as_str).collect();
     let result = match words.as_slice() {
         [] if args.has("version") => {
@@ -183,11 +194,12 @@ pub fn run(argv: &[String], now: DateTime<Utc>) -> Output {
         ["issue", "list"] => ws.issue_list(&args),
         ["issue", "show" | "view", id] => ws.issue_show(id, &args),
         ["comment", "list", id] => ws.comment_list(id, &args),
-        ["issue", "create" | "update" | "archive", ..]
-        | ["comment", "create", ..]
-        | ["file", "download", ..]
-        | ["config", "set", ..]
-        | ["auth", "login" | "logout"] => Ok(Output::failed("the demo workspace is read-only")),
+        ["issue", "update" | "archive", _] | ["issue", "create"] | ["comment", "create", _] => {
+            writes::write(&words, &args, now, state)
+        }
+        ["file", "download", ..] | ["config", "set", ..] | ["auth", "login" | "logout"] => {
+            Ok(Output::failed("the demo workspace is read-only"))
+        }
         _ => Err(format!("unknown command: {}", args.words.join(" "))),
     };
     result.unwrap_or_else(|e| Output::usage(&e))
@@ -204,9 +216,14 @@ pub const FAULT_ENV: &str = "FAKE_LINEARCTL_FAULT";
 /// - `garbage`: exit 0 with stdout that is not JSON;
 /// - `crash`: exit 101 with nothing on stdout;
 /// - `busy-once:PATH`: exit 4 the first time (creating PATH), then answer.
-pub fn run_with_fault(argv: &[String], now: DateTime<Utc>, fault: Option<&str>) -> Output {
+pub fn run_with_fault(
+    argv: &[String],
+    now: DateTime<Utc>,
+    fault: Option<&str>,
+    state: Option<&std::path::Path>,
+) -> Output {
     let Some(fault) = fault.filter(|f| !f.is_empty()) else {
-        return run(argv, now);
+        return run_in(argv, now, state);
     };
     let (kind, arg) = fault.split_once(':').unwrap_or((fault, ""));
     match kind {
@@ -225,7 +242,7 @@ pub fn run_with_fault(argv: &[String], now: DateTime<Utc>, fault: Option<&str>) 
         "sleep" => match arg.parse() {
             Ok(ms) => {
                 std::thread::sleep(std::time::Duration::from_millis(ms));
-                run(argv, now)
+                run_in(argv, now, state)
             }
             Err(_) => Output::usage(&format!("{FAULT_ENV}: bad sleep: {arg}")),
         },
@@ -242,7 +259,7 @@ pub fn run_with_fault(argv: &[String], now: DateTime<Utc>, fault: Option<&str>) 
         "busy-once" => {
             let marker = std::path::Path::new(arg);
             if marker.exists() {
-                run(argv, now)
+                run_in(argv, now, state)
             } else {
                 let _ = std::fs::write(marker, "");
                 Output::error(4, "the config lock is held; nothing changed", false)
@@ -299,6 +316,22 @@ fn uuid(name: &str) -> String {
     )
 }
 
+/// An issue's id: the one it was created with, else derived from its
+/// identifier.
+fn issue_uuid(i: &Value) -> String {
+    i["uuid"].as_str().map_or_else(
+        || uuid(i["identifier"].as_str().unwrap_or_default()),
+        str::to_string,
+    )
+}
+
+/// A comment's id, the same way.
+fn comment_uuid(c: &Value) -> String {
+    c["uuid"]
+        .as_str()
+        .map_or_else(|| uuid(c["id"].as_str().unwrap_or_default()), str::to_string)
+}
+
 fn priority_label(p: i64) -> &'static str {
     match p {
         1 => "Urgent",
@@ -333,8 +366,7 @@ struct Workspace {
 }
 
 impl Workspace {
-    fn load(now: DateTime<Utc>) -> Self {
-        let mut seed: Value = serde_json::from_str(SEED).expect("demo/workspace.json is valid JSON");
+    fn from_seed(mut seed: Value, now: DateTime<Utc>) -> Self {
         let anchor = DateTime::parse_from_rfc3339(seed["anchor"].as_str().expect("anchor"))
             .expect("anchor is RFC 3339")
             .with_timezone(&Utc);
@@ -374,7 +406,7 @@ impl Workspace {
     fn issue(&self, id: &str) -> Option<&Value> {
         self.issues()
             .iter()
-            .find(|i| i["identifier"] == id || uuid(i["identifier"].as_str().unwrap_or("")) == id)
+            .find(|i| i["identifier"] == id || issue_uuid(i) == id)
     }
 
     fn team(&self) -> &Value {
@@ -508,7 +540,7 @@ impl Workspace {
             _ => Value::Null,
         };
         json!({
-            "id": uuid(ident),
+            "id": issue_uuid(i),
             "identifier": ident,
             "title": i["title"],
             "priority": priority,
@@ -530,12 +562,12 @@ impl Workspace {
     }
 
     fn comment(&self, issue: &str, c: &Value) -> Value {
-        let id = c["id"].as_str().unwrap_or_default();
+        let id = comment_uuid(c);
         json!({
-            "id": uuid(id),
+            "id": id,
             "body": c["body"],
             "createdAt": c["createdAt"],
-            "url": format!("https://linear.app/{}/issue/{issue}#comment-{}", self.org_key(), &uuid(id)[..8]),
+            "url": format!("https://linear.app/{}/issue/{issue}#comment-{}", self.org_key(), &id[..8]),
             "user": self.user_ref(&c["user"]),
             "parent": c["parent"].as_str().map_or(Value::Null, |p| json!({"id": uuid(p)})),
         })
@@ -700,6 +732,8 @@ impl Workspace {
         let mut issues: Vec<&Value> = self
             .issues()
             .iter()
+            // Archived issues drop out of lists, as in Linear.
+            .filter(|i| i["archivedAt"].is_null())
             .filter(|i| {
                 let labels: Vec<&str> = i["labels"]
                     .as_array()
@@ -1126,10 +1160,10 @@ mod tests {
     #[test]
     fn writes_are_refused() {
         for cmd in [
-            "issue create --team ENG --title x --dry-run --json",
-            "issue update ENG-142 --priority 1 --yes --json",
+            "issue create --team ENG --title x --id 11111111-2222-4333-8444-555555555555 --yes --json",
+            "issue update ENG-142 --priority 4 --yes --json",
             "issue archive ENG-142 --yes --json",
-            "comment create ENG-142 --body hi --dry-run --json",
+            "comment create ENG-142 --body hi --id 11111111-2222-4333-8444-555555555555 --yes --json",
             "file download https://uploads.linear.app/x --yes --json",
             "config set default-team ENG --yes --json",
             "auth login --yes --json",
@@ -1211,9 +1245,9 @@ mod tests {
     #[test]
     fn faults() {
         let argv = vec!["auth".to_string(), "status".to_string()];
-        let f = |spec: &str| run_with_fault(&argv, anchor(), Some(spec));
-        assert_eq!(run_with_fault(&argv, anchor(), None).code, 0);
-        assert_eq!(run_with_fault(&argv, anchor(), Some("")).code, 0);
+        let f = |spec: &str| run_with_fault(&argv, anchor(), Some(spec), None);
+        assert_eq!(run_with_fault(&argv, anchor(), None, None).code, 0);
+        assert_eq!(run_with_fault(&argv, anchor(), Some(""), None).code, 0);
         assert_eq!(f("exit:5").code, 5);
         assert!(f("exit:2").stdout.contains("\"usage\":true"));
         assert!(f("exit:6").stdout.contains("retryAt"));
