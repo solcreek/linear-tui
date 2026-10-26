@@ -19,10 +19,15 @@ or set LINEAR_TUI_BIN in herdr's environment."
 "$bin" ${LINEAR_TUI_ARGS:-} ${LINEAR_TUI_DEMO:+--demo} ${LINEAR_TUI_ISSUE:+"$LINEAR_TUI_ISSUE"}
 status=$?
 [ "$status" -eq 0 ] && exit 0
-if [ -z "${LINEAR_TUI_DEMO:-}" ] && [ -z "${LINEARCTL:-}" ]; then
-    fail "
+# Blame linearctl only when linear-tui had to find it and could not: not for
+# the demo, a --linearctl given, or any other failure.
+if [ -z "${LINEAR_TUI_DEMO:-}" ] && [ -z "${LINEARCTL:-}" ] && ! command -v linearctl >/dev/null 2>&1; then
+    case " ${LINEAR_TUI_ARGS:-} " in
+    *" --demo "* | *" --linearctl "*) ;;
+    *) fail "
 linearctl was not found: install it and log in
 (https://github.com/solcreek/linear-cli), or set LINEARCTL in herdr's
-environment. The demo action needs neither."
+environment. The demo action needs neither." ;;
+    esac
 fi
 fail ""
