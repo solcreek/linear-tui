@@ -498,7 +498,8 @@ impl App {
             KeyCode::Char('E') if self.focus == Focus::Detail => {
                 let d = self.detail.as_ref()?.issue.as_ref()?;
                 let issue = d.row.identifier.clone();
-                let original = d.description.clone().unwrap_or_default();
+                // As stored in Linear: without the signatures the detail was read with.
+                let original = crate::images::unsign(d.description.as_deref().unwrap_or_default());
                 let text = self.drafts.get(&issue).cloned().unwrap_or_else(|| original.clone());
                 if self.drafts.contains_key(&issue) {
                     self.notice = Some("Editing your unsent draft.".into());

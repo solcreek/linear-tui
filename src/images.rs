@@ -40,6 +40,35 @@ pub fn cache_key(url: &str) -> Option<String> {
     Some(Sha256::digest(path.as_bytes()).iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// `text` with the `signature` parameter taken off every upload URL, as
+/// Linear stores it: text read with `--signed-urls` must not be written
+/// back signed, or its images break when the signatures expire.
+pub fn unsign(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(UPLOADS) {
+        let end = rest[at..]
+            .find(|c: char| c == ')' || c == '"' || c == '>' || c.is_whitespace())
+            .map_or(rest.len(), |e| at + e);
+        let url = &rest[at..end];
+        out.push_str(&rest[..at]);
+        match url.split_once('?') {
+            Some((path, query)) => {
+                let kept: Vec<&str> = query.split('&').filter(|p| !p.starts_with("signature=")).collect();
+                out.push_str(path);
+                if !kept.is_empty() {
+                    out.push('?');
+                    out.push_str(&kept.join("&"));
+                }
+            }
+            None => out.push_str(url),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FetchError {
     /// 401 or 403: the signature expired (or there never was one).
@@ -307,6 +336,22 @@ mod tests {
         assert_eq!(upload_path("http://uploads.linear.app/a"), None);
         assert_eq!(upload_path("https://uploads.linear.app.evil.example/a"), None);
         assert_eq!(upload_path("https://example.com/a.png"), None);
+    }
+
+    #[test]
+    fn unsign_drops_only_signatures_on_uploads() {
+        let t = "a ![x](https://uploads.linear.app/o/f?signature=eyJ.a.b) b https://uploads.linear.app/o/g?v=2&signature=s c";
+        assert_eq!(
+            unsign(t),
+            "a ![x](https://uploads.linear.app/o/f) b https://uploads.linear.app/o/g?v=2 c"
+        );
+        assert_eq!(
+            unsign("https://uploads.linear.app/o/h?signature=1?signature=2"),
+            "https://uploads.linear.app/o/h"
+        );
+        let other = "[l](https://example.com/p?signature=keep)";
+        assert_eq!(unsign(other), other);
+        assert_eq!(unsign("https://uploads.linear.app/o/f"), "https://uploads.linear.app/o/f");
     }
 
     #[test]
