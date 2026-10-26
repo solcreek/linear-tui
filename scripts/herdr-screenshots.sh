@@ -1,8 +1,8 @@
 #!/bin/sh
 # Regenerates the README's herdr screenshots: the plugin in herdr-plugin/ on
-# the demo workspace, in a herdr that shares nothing with yours (its own HOME
-# and server), recorded on a PTY by examples/pty-record.rs and rendered with
-# termshot, as scripts/screenshots.sh.
+# the demo workspace, in a herdr that shares nothing with yours (its own HOME,
+# server and tmux), driven in a detached tmux session and rendered with
+# termshot 0.4.0 or later, as scripts/screenshots.sh.
 #
 #   scripts/herdr-screenshots.sh      # writes docs/images/herdr-*.png
 #   TERMSHOT=/path/to/termshot scripts/herdr-screenshots.sh
@@ -11,27 +11,28 @@ cd "$(dirname "$0")/.."
 root=$(pwd)
 termshot=${TERMSHOT:-termshot}
 command -v "$termshot" >/dev/null || { echo "termshot not found; set TERMSHOT" >&2; exit 1; }
+"$termshot" --help 2>&1 | grep -q -- --cell || { echo "termshot has no --cell: needs 0.4.0 or later" >&2; exit 1; }
 command -v herdr >/dev/null || { echo "herdr not found" >&2; exit 1; }
-cargo build --quiet --release --bins --example pty-record
+cargo build --quiet --release --bins
 out=docs/images
-px=28
 size=160x44
+# herdr cuts a kitty image into one strip per row of its cell height. Under
+# tmux it gets tmux's default cell, 16x32 (DEFAULT_XPIXEL/YPIXEL); linear-tui
+# is told the same (asked inside herdr, it sometimes gets another), and
+# termshot draws its rows that high, so each strip is exactly one row.
+cell=16x32
 # Short: herdr's socket lives under it, and a socket path has ~100 bytes.
 home=$(mktemp -d /tmp/lt-herdr.XXXX)
 # Run from a herdr pane, herdr would follow an inherited socket or session to
 # your server, even with HOME changed: drop them, and the XDG paths, so that
-# everything is under HOME. (Not set to paths inside it: herdr 0.9.5 with
-# XDG_CONFIG_HOME set gives its panes another cell size than the PTY's.)
+# everything is under HOME.
 for v in $(env | sed -n 's/^\(HERDR_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
-unset TMUX TERM_PROGRAM TERM_PROGRAM_VERSION \
-	XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+# A tmux server per run, so two runs never kill each other's.
+tmux="tmux -L lt-herdr-${home##*.}"
 log=$home/pty.log
-trap 'HOME=$home herdr server stop >/dev/null 2>&1 || true; rm -rf "$home"' EXIT
-
-# herdr (by the PTY) and linear-tui (by --cell-size) are told termshot's cell
-# size, so the image fits whole rows and herdr's strips of it are exactly one
-# termshot row high. Asked inside herdr, linear-tui sometimes gets another.
-cell=$(printf x | "$termshot" -v --size 1x1 --px $px - /dev/null 2>&1 | sed -n 's/.*cell \([0-9]*x[0-9]*\).*/\1/p')
+trap 'HOME=$home herdr server stop >/dev/null 2>&1 || true; $tmux kill-server 2>/dev/null || true
+	rm -rf "$home" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/lt-herdr-${home##*.}"' EXIT
 
 # The scene: a project on a branch for the demo's ENG-142, a plain prompt.
 printf '%s\n' "PROMPT='%F{cyan}%1~%f %# '" 'unsetopt BEEP' >"$home/.zshrc"
@@ -43,33 +44,48 @@ for m in "Checkout v2 behind a flag" "Coupon field on the payment step" "Log rej
 done
 git -C "$repo" switch -q -c maya/eng-142-coupon-whitespace
 
-# shot NAME PLACEMENT STEP...: a fresh herdr, `open.sh demo PLACEMENT`, then
-# each STEP (a pty-record step line), and the last frame. Give an issue time
-# to open before scrolling: scrolled while it loads, its image leaves strips.
+# shot NAME PLACEMENT KEYS...: a fresh herdr, `open.sh demo PLACEMENT`, each
+# key (`wait` pauses instead: an issue scrolled while it loads leaves image
+# strips behind), and the last frame.
 shot() {
 	name=$1 placement=$2
 	shift 2
+	$tmux kill-server 2>/dev/null || true
 	HOME=$home herdr server stop >/dev/null 2>&1 || true
 	rm -rf "$home/.config/herdr"
+	: >"$log"
+	# Unset tmux's variables so herdr talks kitty graphics to termshot, which
+	# replays the raw log.
+	$tmux new-session -d -s shot -x "${size%x*}" -y "${size#*x}" -c "$repo" \
+		"sleep 0.5; exec env -u TMUX -u TERM_PROGRAM -u TERM_PROGRAM_VERSION HOME=$home TERM=xterm-kitty SHELL=/bin/zsh herdr"
+	$tmux pipe-pane -t shot -O "cat >> '$log'"
+	sleep 4
 	# First run: the welcome, then the agent integrations offer.
-	cat >"$home/steps" <<-EOF
-		sleep 4
-		keys \r
-		sleep 0.5
-		keys \x1b
-		sleep 0.5
-		run HOME=$home herdr plugin link $root/herdr-plugin >/dev/null
-		keys clear; git --no-pager log --oneline --decorate\r
-		sleep 1
-		run HOME=$home LINEAR_TUI_BIN=$root/target/release/linear-tui LINEAR_TUI_ARGS="--images kitty --cell-size $cell" sh $root/herdr-plugin/open.sh demo $placement >/dev/null
-		sleep 2
-	EOF
-	printf '%s\n' "$@" 'sleep 2' >>"$home/steps"
-	(cd "$repo" && HOME=$home SHELL=/bin/zsh TERM=xterm-kitty \
-		"$root/target/release/examples/pty-record" "$log" "$size" "$cell" "$home/steps" -- herdr)
-	"$termshot" --size "$size" --cursor none --px $px --padding 16 "$log" "$out/$name.png"
+	$tmux send-keys -t shot Enter
+	sleep 0.5
+	$tmux send-keys -t shot Escape
+	sleep 0.5
+	HOME=$home herdr plugin link "$root/herdr-plugin" >/dev/null
+	$tmux send-keys -t shot "clear; git --no-pager log --oneline --decorate" Enter
+	sleep 1
+	HOME=$home LINEAR_TUI_BIN=$root/target/release/linear-tui \
+		LINEAR_TUI_ARGS="--images kitty --cell-size $cell" \
+		sh herdr-plugin/open.sh demo "$placement" >/dev/null
+	sleep 2
+	for key in "$@"; do
+		case $key in
+		wait) sleep 2 ;;
+		*)
+			$tmux send-keys -t shot "$key"
+			sleep 0.3
+			;;
+		esac
+	done
+	sleep 1.5
+	$tmux pipe-pane -t shot
+	"$termshot" --size "$size" --cell "$cell" --cursor none --padding 16 "$log" "$out/$name.png"
 	echo "$out/$name.png"
 }
 
-shot herdr-popup popup 'keys 2'
-shot herdr-split split 'keys \r' 'sleep 2' 'keys jjjjjjjj' 'sleep 1'
+shot herdr-popup popup 2
+shot herdr-split split Enter wait j j j j j j j j

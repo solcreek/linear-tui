@@ -655,7 +655,6 @@ dependencies = [
  "chrono",
  "crossterm",
  "image",
- "libc",
  "pulldown-cmark",
  "ratatui",
  "ratatui-image",

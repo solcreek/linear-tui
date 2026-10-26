@@ -114,4 +114,5 @@ matching LLVM: `LLVM_COV=$(brew --prefix llvm@22)/bin/llvm-cov`
 Screenshots: `scripts/screenshots.sh` drives `--demo` in tmux, records what it
 writes (kitty graphics included) and renders that with termshot (`TERMSHOT=/path/to/termshot` if it is not on `PATH`).
 `scripts/herdr-screenshots.sh` does the same for the herdr plugin, in a herdr
-of its own that shares nothing with yours.
+of its own that shares nothing with yours; it needs termshot 0.4.0 or later
+(`--cell`).
