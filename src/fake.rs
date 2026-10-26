@@ -157,6 +157,20 @@ pub fn run(argv: &[String], now: DateTime<Utc>) -> Output {
     run_in(argv, now, None)
 }
 
+/// The fake run in-process, as a [`crate::ctl::Exec`]: for tests that need
+/// no binary. Times are relative to `now`; writes go to `state` if given.
+pub struct InProcess {
+    pub now: DateTime<Utc>,
+    pub state: Option<std::path::PathBuf>,
+}
+
+impl crate::ctl::Exec for InProcess {
+    fn exec(&self, argv: &[String]) -> Result<Value, crate::ctl::Failure> {
+        let out = run_in(argv, self.now, self.state.as_deref());
+        crate::ctl::outcome(Some(out.code), out.stdout.as_bytes(), &out.stderr)
+    }
+}
+
 /// The environment variable naming a file that keeps the demo workspace's
 /// writes; without it, writes are refused as in linearctl's demo mode.
 pub const STATE_ENV: &str = "FAKE_LINEARCTL_STATE";

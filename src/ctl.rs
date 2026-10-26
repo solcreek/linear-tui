@@ -195,6 +195,24 @@ impl Failure {
     }
 }
 
+/// Something that runs linearctl command lines: a process per call, or the
+/// fake in-process for tests.
+pub trait Exec {
+    fn exec(&self, argv: &[String]) -> Result<Value, Failure>;
+}
+
+impl Exec for Runner {
+    fn exec(&self, argv: &[String]) -> Result<Value, Failure> {
+        self.run(argv)
+    }
+}
+
+/// Run and parse into `T`.
+pub fn run_as<T: DeserializeOwned>(e: &impl Exec, argv: &[String]) -> Result<T, Failure> {
+    let v = e.exec(argv)?;
+    serde_json::from_value(v).map_err(|e| Failure::BadOutput(e.to_string()))
+}
+
 /// Spawns linearctl. Cheap to clone; each call is its own process.
 #[derive(Debug, Clone)]
 pub struct Runner {
@@ -223,8 +241,7 @@ impl Runner {
 
     /// Run and parse into `T`.
     pub fn run_as<T: DeserializeOwned>(&self, argv: &[String]) -> Result<T, Failure> {
-        let v = self.run(argv)?;
-        serde_json::from_value(v).map_err(|e| Failure::BadOutput(e.to_string()))
+        run_as(self, argv)
     }
 
     /// Run, retrying while linearctl is busy; the JSON comes back sanitized.
@@ -280,21 +297,27 @@ impl Runner {
         };
         let stdout = out.join().unwrap_or_default();
         let stderr = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
-        let code = status.code();
+        outcome(status.code(), &stdout, &stderr)
+    }
+}
+
+/// What a finished linearctl call means: its JSON, sanitized, or why not.
+pub fn outcome(code: Option<i32>, stdout: &[u8], stderr: &str) -> Result<Value, Failure> {
+    {
         if code == Some(0) {
             let mut v: Value =
-                serde_json::from_slice(&stdout).map_err(|e| Failure::BadOutput(e.to_string()))?;
+                serde_json::from_slice(stdout).map_err(|e| Failure::BadOutput(e.to_string()))?;
             clean_json(&mut v);
             return Ok(v);
         }
-        let doc: Option<ErrorDoc> = serde_json::from_slice::<Value>(&stdout).ok().and_then(|mut v| {
+        let doc: Option<ErrorDoc> = serde_json::from_slice::<Value>(stdout).ok().and_then(|mut v| {
             clean_json(&mut v);
             serde_json::from_value(v).ok()
         });
         let Some(doc) = doc else {
             return Err(Failure::Crashed {
                 code,
-                stderr: crate::sanitize::clean(&stderr),
+                stderr: crate::sanitize::clean(stderr),
             });
         };
         Err(match code {
