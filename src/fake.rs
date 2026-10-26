@@ -187,9 +187,9 @@ pub fn run_in(argv: &[String], now: DateTime<Utc>, state: Option<&std::path::Pat
         ["issue", "list"] => ws.issue_list(&args),
         ["issue", "show" | "view", id] => ws.issue_show(id, &args),
         ["comment", "list", id] => ws.comment_list(id, &args),
-        ["issue", "update" | "archive", _] | ["issue", "create"] | ["comment", "create", _] => {
-            writes::write(&words, &args, now, state)
-        }
+        ["issue", "update" | "archive" | "unarchive", _]
+        | ["issue", "create"]
+        | ["comment", "create" | "delete", _] => writes::write(&words, &args, now, state),
         ["file", "download", ..] | ["config", "set", ..] | ["auth", "login" | "logout"] => {
             Ok(Output::failed("the demo workspace is read-only"))
         }

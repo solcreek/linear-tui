@@ -35,7 +35,9 @@ pub(super) fn write(
     let result = match words {
         ["issue", "update", id] => update(&mut raw, id, args, dry)?,
         ["issue", "create"] => create(&mut raw, args, dry)?,
-        ["issue", "archive", id] => archive(&mut raw, id, args, dry)?,
+        ["issue", "archive", id] => archive(&mut raw, id, args, dry, true)?,
+        ["issue", "unarchive", id] => archive(&mut raw, id, args, dry, false)?,
+        ["comment", "delete", id] => delete_comment(&mut raw, id, args, dry)?,
         ["comment", "create", id] => comment(&mut raw, id, args, dry)?,
         _ => return Err(format!("unknown command: {}", words.join(" "))),
     };
@@ -394,7 +396,8 @@ fn create(raw: &mut Value, args: &Args, dry: bool) -> Result<Done, String> {
     Ok(Done::Doc { doc, changed: true, item: Item::Issue(ident) })
 }
 
-fn archive(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, String> {
+/// `issue archive`, or `issue unarchive` when `archive` is false.
+fn archive(raw: &mut Value, id: &str, args: &Args, dry: bool, archive: bool) -> Result<Done, String> {
     args.only(&["dry-run", "yes"])?;
     let anchor = raw["anchor"].clone();
     let key = raw["organization"]["urlKey"].as_str().unwrap_or_default().to_string();
@@ -402,13 +405,34 @@ fn archive(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, St
         return Ok(Done::Failed(format!("not found: issue {id} (or this API key cannot see it)")));
     };
     let ident = issue["identifier"].as_str().unwrap_or_default().to_string();
-    let changed = issue["archivedAt"].is_null();
+    let changed = issue["archivedAt"].is_null() == archive;
     if changed && !dry {
-        issue["archivedAt"] = anchor;
+        issue["archivedAt"] = if archive { anchor } else { Value::Null };
     }
     let url = format!("https://linear.app/{key}/issue/{ident}");
     let doc = json!({"changed": changed, "dryRun": dry, "identifier": ident, "url": url});
     Ok(Done::Doc { doc, changed, item: Item::None })
+}
+
+/// `comment delete`: one not there is changed: false, found: false.
+fn delete_comment(raw: &mut Value, id: &str, args: &Args, dry: bool) -> Result<Done, String> {
+    args.only(&["dry-run", "yes"])?;
+    let key = raw["organization"]["urlKey"].as_str().unwrap_or_default().to_string();
+    let issues = raw["issues"].as_array_mut().into_iter().flatten();
+    for issue in issues {
+        let ident = issue["identifier"].as_str().unwrap_or_default().to_string();
+        let Some(comments) = issue["comments"].as_array_mut() else { continue };
+        if let Some(at) = comments.iter().position(|c| comment_uuid(c) == id) {
+            if !dry {
+                comments.remove(at);
+            }
+            let url = format!("https://linear.app/{key}/issue/{ident}#comment-{}", &id[..8.min(id.len())]);
+            let doc = json!({"changed": true, "dryRun": dry, "found": true, "id": id, "url": url});
+            return Ok(Done::Doc { doc, changed: true, item: Item::None });
+        }
+    }
+    let doc = json!({"changed": false, "dryRun": dry, "found": false, "id": id});
+    Ok(Done::Doc { doc, changed: false, item: Item::None })
 }
 
 fn comment(raw: &mut Value, issue_id: &str, args: &Args, dry: bool) -> Result<Done, String> {
@@ -704,6 +728,29 @@ mod tests {
         assert_eq!(go("comment create ENG-158 --body x --yes --json", None).0, 2);
         assert_eq!(go("comment create ENG-999 --body x --dry-run --json", None).0, 1);
         assert_eq!(go("comment create ENG-158 --body x --id abc --yes --json", None).0, 1, "read-only");
+    }
+
+    #[test]
+    fn unarchive_and_delete_a_comment() {
+        let st = state("undo");
+        assert_eq!(go("issue archive ENG-155 --yes --json", Some(&st)).0, 0);
+        let (_, dry) = go("issue unarchive ENG-155 --dry-run --json", Some(&st));
+        assert_eq!(dry["changed"], true);
+        let (code, _) = go("issue unarchive ENG-155 --yes --json", Some(&st));
+        assert_eq!(code, 0);
+        assert!(go("issue show ENG-155 --json", Some(&st)).1["issue"]["archivedAt"].is_null());
+        assert_eq!(go("issue unarchive ENG-155 --yes --json", Some(&st)).1["changed"], false);
+        let (_, show) = go("issue show ENG-142 --json", Some(&st));
+        let c = show["issue"]["comments"][3]["id"].as_str().unwrap().to_string();
+        let (_, dry) = go(&format!("comment delete {c} --dry-run --json"), Some(&st));
+        assert_eq!((dry["changed"].clone(), dry["found"].clone()), (json!(true), json!(true)));
+        assert_eq!(go(&format!("comment delete {c} --yes --json"), Some(&st)).0, 0);
+        assert_eq!(
+            go("issue show ENG-142 --json", Some(&st)).1["issue"]["comments"].as_array().unwrap().len(),
+            3
+        );
+        let (_, again) = go(&format!("comment delete {c} --yes --json"), Some(&st));
+        assert_eq!((again["changed"].clone(), again["found"].clone()), (json!(false), json!(false)));
     }
 
     #[test]
