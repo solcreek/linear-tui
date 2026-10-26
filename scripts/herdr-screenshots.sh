@@ -23,9 +23,11 @@ home=$(mktemp -d /tmp/lt-herdr.XXXX)
 for v in $(env | sed -n 's/^\(HERDR_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 export XDG_CONFIG_HOME=$home/.config XDG_STATE_HOME=$home/.local/state \
 	XDG_DATA_HOME=$home/.local/share XDG_CACHE_HOME=$home/.cache
-tmux="tmux -L lt-herdr"
+# A tmux server per run, so two runs never kill each other's.
+tmux="tmux -L lt-herdr-${home##*.}"
 log=$home/pty.log
-trap 'HOME=$home herdr server stop >/dev/null 2>&1 || true; $tmux kill-server 2>/dev/null || true; rm -rf "$home"' EXIT
+trap 'HOME=$home herdr server stop >/dev/null 2>&1 || true; $tmux kill-server 2>/dev/null || true
+	rm -rf "$home" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/lt-herdr-${home##*.}"' EXIT
 
 cell=$(printf x | "$termshot" -v --size 1x1 --px $px - /dev/null 2>&1 | sed -n 's/.*cell \([0-9]*x[0-9]*\).*/\1/p')
 
