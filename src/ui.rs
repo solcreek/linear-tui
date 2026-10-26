@@ -307,9 +307,18 @@ fn render_header(app: &App, f: &mut Frame, area: Rect) {
         let more = if app.next_cursor.is_some() { "+" } else { "" };
         format!("{n}{more} issues")
     };
+    let live = match &app.live {
+        Some(l) if l.ready && l.mode == "poll" => {
+            Span::styled("● live · polling  ", Style::new().fg(Color::Green))
+        }
+        Some(l) if l.ready => Span::styled("● live  ", Style::new().fg(Color::Green)),
+        Some(_) => Span::styled("○ connecting  ", dim()),
+        None => Span::raw(""),
+    };
     let left_w: usize = spans.iter().map(|s| s.content.width()).sum();
-    let pad = usize::from(area.width).saturating_sub(left_w + right.width() + 1);
+    let pad = usize::from(area.width).saturating_sub(left_w + live.content.width() + right.width() + 1);
     spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(live);
     spans.push(Span::styled(right, dim()));
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
@@ -1040,6 +1049,25 @@ mod tests {
         app.form.as_mut().unwrap().description.clear();
         app.form.as_mut().unwrap().field = 1;
         assert!(screen(&draw(&mut app, 120, 30)).contains("enter opens $EDITOR"));
+    }
+
+    #[test]
+    fn the_header_says_when_updates_are_live() {
+        let mut app = app_on('1');
+        assert!(!screen(&draw(&mut app, 120, 5)).contains("live"));
+        let live = |mode: &str, ready| crate::app::Live {
+            generation: 1,
+            view: 0,
+            mode: mode.into(),
+            ready,
+            heard: now(),
+        };
+        app.live = Some(live("", false));
+        assert!(screen(&draw(&mut app, 120, 5)).contains("○ connecting  4 issues"));
+        app.live = Some(live("subscription", true));
+        assert!(screen(&draw(&mut app, 120, 5)).contains("● live  4 issues"));
+        app.live = Some(live("poll", true));
+        assert!(screen(&draw(&mut app, 120, 5)).contains("● live · polling  4 issues"));
     }
 
     #[test]

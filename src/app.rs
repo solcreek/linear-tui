@@ -10,7 +10,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::ctl::{self, Failure, Lookup};
 use crate::model::{AuthStatus, IssueDetail, IssueRow, Named, Page, WriteResult};
 
+mod live;
 mod write;
+pub use live::{Live, can_watch};
 pub use write::{
     Confirm, EditFor, FORM_FIELDS, Field, Form, Lookups, Overlay, PickItem, PickList, Purpose, Target, Text,
 };
@@ -190,6 +192,12 @@ pub enum Effect {
         purpose: EditFor,
         text: String,
     },
+    /// Run `watch` (stopping any other); its lines come as `Msg::Watched`.
+    Watch {
+        generation: u64,
+        argv: Vec<String>,
+    },
+    StopWatch,
 }
 
 /// An image in the open issue, by upload path.
@@ -250,6 +258,17 @@ pub enum Msg {
         purpose: EditFor,
         text: Option<String>,
     },
+    Watched {
+        generation: u64,
+        event: crate::model::WatchEvent,
+    },
+    /// The watch ended by itself: why, if it failed.
+    WatchEnded {
+        generation: u64,
+        failure: Option<Failure>,
+    },
+    /// A second passed.
+    Tick,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +331,14 @@ pub struct App {
     pub drafts: HashMap<String, String>,
     /// Whether linearctl has `issue update --if-updated-at` (0.2.0).
     pub can_check_updated: bool,
+    /// Whether linearctl has `watch` (0.2.0).
+    pub can_watch: bool,
+    /// The watch for the view on screen.
+    pub live: Option<Live>,
+    watch_generation: u64,
+    watch_retry_at: Option<DateTime<Utc>>,
+    /// When the view was last loaded whole.
+    last_loaded: Option<DateTime<Utc>>,
     /// How images are encoded for this terminal; `None` draws none.
     pub picker: Option<ratatui_image::picker::Picker>,
 }
@@ -347,6 +374,11 @@ impl App {
             notice: None,
             drafts: HashMap::new(),
             can_check_updated: false,
+            can_watch: false,
+            live: None,
+            watch_generation: 0,
+            watch_retry_at: None,
+            last_loaded: None,
         }
     }
 
@@ -471,13 +503,18 @@ impl App {
                 self.loading = false;
                 match result {
                     Ok(page) => {
+                        let selected = self.selected_row().map(|r| r.id.clone());
                         if !append {
                             self.rows.clear();
                         }
                         self.rows.extend(page.items);
                         self.next_cursor = page.next_cursor.filter(|_| page.truncated);
-                        self.selected = self.selected.min(self.visible().len().saturating_sub(1));
+                        self.reselect(selected);
                         self.status = None;
+                        if !append {
+                            self.last_loaded = Some(self.now);
+                            return self.ensure_watch();
+                        }
                     }
                     Err(f) => self.status = Some(f.message()),
                 }
@@ -521,6 +558,9 @@ impl App {
                 self.on_wrote(purpose, argv, text, summary, result)
             }
             Msg::Edited { purpose, text } => self.on_edited(purpose, text),
+            Msg::Watched { generation, event } => self.on_watched(generation, event),
+            Msg::WatchEnded { generation, failure } => self.on_watch_ended(generation, failure),
+            Msg::Tick => self.on_tick(),
             Msg::Authed(Ok(a)) => {
                 self.auth = Some(a);
                 Vec::new()
@@ -606,7 +646,9 @@ impl App {
         self.selected = 0;
         self.next_cursor = None;
         self.status = None;
-        self.load_view()
+        let mut fx = self.stop_watch();
+        fx.extend(self.load_view());
+        fx
     }
 
     fn list_key(&mut self, k: KeyEvent, ctrl: bool) -> Vec<Effect> {

@@ -10,7 +10,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyEventKind};
 use linear_tui::app::{App, EditFor, Effect, Msg, default_views, missing};
 use linear_tui::contract::Describe;
-use linear_tui::ctl::Runner;
+use linear_tui::ctl::{Exec, Runner, Serve, WatchLine, Watcher};
 use linear_tui::images::{self, DiskCache, Loader};
 use linear_tui::ui;
 use ratatui_image::picker::{Picker, ProtocolType};
@@ -29,6 +29,8 @@ Usage: linear-tui [--demo] [--linearctl PATH] [--images MODE] [--cell-size WxH]
 
 linearctl holds the API key: run `linearctl auth login --yes` first.";
 
+/// linearctl serve processes: calls at a time.
+const SERVE_PROCESSES: usize = 3;
 /// Image fetches at a time.
 const IMAGE_WORKERS: usize = 4;
 /// The disk cache for images.
@@ -149,34 +151,58 @@ fn image_workers(loader: Arc<Loader>, tx: Sender<Msg>) -> Sender<String> {
     jobs
 }
 
-/// Start each effect; edits are returned, since they need the terminal.
-#[must_use]
-fn spawn(
-    runner: &Runner,
-    tx: &Sender<Msg>,
-    images: &Sender<String>,
-    fx: Vec<Effect>,
-) -> Vec<(EditFor, String)> {
-    let mut edits = Vec::new();
-    for f in fx {
-        match f {
-            Effect::Run(req) => {
-                let (runner, tx) = (runner.clone(), tx.clone());
-                thread::spawn(move || {
-                    let _ = tx.send(req.run(&runner));
-                });
-            }
-            Effect::FetchImage(url) => {
-                let _ = images.send(url);
-            }
-            Effect::Edit { purpose, text } => edits.push((purpose, text)),
-            Effect::Open(url) => {
-                let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-                let _ = Command::new(opener).arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+/// Where effects run: linearctl calls (over serve when it can), image
+/// fetches, the watch for the view, the browser.
+struct Effects {
+    exec: Arc<dyn Exec + Send + Sync>,
+    runner: Runner,
+    tx: Sender<Msg>,
+    images: Sender<String>,
+    watcher: Option<Watcher>,
+}
+
+impl Effects {
+    /// Start each effect; edits are returned, since they need the terminal.
+    #[must_use]
+    fn start(&mut self, fx: Vec<Effect>) -> Vec<(EditFor, String)> {
+        let mut edits = Vec::new();
+        for f in fx {
+            match f {
+                Effect::Run(req) => {
+                    let (exec, tx) = (self.exec.clone(), self.tx.clone());
+                    thread::spawn(move || {
+                        let _ = tx.send(req.run(&*exec));
+                    });
+                }
+                Effect::FetchImage(url) => {
+                    let _ = self.images.send(url);
+                }
+                Effect::Edit { purpose, text } => edits.push((purpose, text)),
+                Effect::Watch { generation, argv } => {
+                    self.watcher = None; // stops the old one
+                    let tx = self.tx.clone();
+                    let report = move |line| {
+                        let _ = tx.send(match line {
+                            WatchLine::Event(event) => Msg::Watched { generation, event },
+                            WatchLine::End(failure) => Msg::WatchEnded { generation, failure },
+                        });
+                    };
+                    match Watcher::start(&self.runner, &argv, report) {
+                        Ok(w) => self.watcher = Some(w),
+                        Err(f) => {
+                            let _ = self.tx.send(Msg::WatchEnded { generation, failure: Some(f) });
+                        }
+                    }
+                }
+                Effect::StopWatch => self.watcher = None,
+                Effect::Open(url) => {
+                    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                    let _ = Command::new(opener).arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+                }
             }
         }
+        edits
     }
-    edits
 }
 
 fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
@@ -211,13 +237,24 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
             .map(|d| DiskCache::new(d, IMAGE_CACHE_BYTES)),
         fallback: Some(runner.clone()),
     };
-    let image_jobs = image_workers(Arc::new(loader), tx.clone());
+    let images = image_workers(Arc::new(loader), tx.clone());
+    // Calls over serve --stdio when linearctl has it (0.2.0): one
+    // connection to Linear, kept, instead of a process per call.
+    let serve = ["serve".to_string(), "--stdio".to_string()];
+    let exec: Arc<dyn Exec + Send + Sync> = if describe.check_argv(&serve).is_empty() {
+        Arc::new(Serve::new(runner.clone(), SERVE_PROCESSES))
+    } else {
+        Arc::new(runner.clone())
+    };
+    let mut fx = Effects { exec, runner: runner.clone(), tx, images, watcher: None };
     let mut app = App::new(default_views(), chrono::Utc::now());
     let mut terminal = ratatui::init();
     app.picker = picker(opts.images, opts.cell);
     app.images_on = opts.images != Images::Off;
     app.can_check_updated = linear_tui::app::can_check_updated(describe);
-    let mut edits = spawn(runner, &tx, &image_jobs, app.start());
+    app.can_watch = linear_tui::app::can_watch(describe);
+    let mut edits = fx.start(app.start());
+    let mut tick = std::time::Instant::now();
     let result = loop {
         app.now = chrono::Utc::now();
         if let Err(e) = terminal.draw(|f| ui::render(&mut app, f)) {
@@ -226,7 +263,7 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
         match event::poll(Duration::from_millis(50)) {
             Ok(true) => match event::read() {
                 Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => {
-                    edits.extend(spawn(runner, &tx, &image_jobs, app.update(Msg::Key(k))));
+                    edits.extend(fx.start(app.update(Msg::Key(k))));
                 }
                 Ok(_) => {}
                 Err(e) => break Err(e),
@@ -235,7 +272,11 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
             Err(e) => break Err(e),
         }
         while let Ok(msg) = rx.try_recv() {
-            edits.extend(spawn(runner, &tx, &image_jobs, app.update(msg)));
+            edits.extend(fx.start(app.update(msg)));
+        }
+        if tick.elapsed() >= Duration::from_secs(1) {
+            tick = std::time::Instant::now();
+            edits.extend(fx.start(app.update(Msg::Tick)));
         }
         // The editor gets the terminal; the TUI comes back after it.
         while let Some((purpose, text)) = edits.pop() {
@@ -243,7 +284,7 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
             let edited = linear_tui::editor::edit(&text);
             terminal = ratatui::init();
             terminal.clear()?;
-            edits.extend(spawn(runner, &tx, &image_jobs, app.update(Msg::Edited { purpose, text: edited })));
+            edits.extend(fx.start(app.update(Msg::Edited { purpose, text: edited })));
         }
         if app.quit {
             break Ok(());
