@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Views from `~/.config/linear-tui/config.toml` (`$XDG_CONFIG_HOME` if set):
+  `[[view]]` entries with a `name` and the `issue list` flags as `args`,
+  replacing the built-in four; checked against linearctl at start.
 - `u` undoes the last write: quick edits, a description, a comment or reply
   (deleted), archiving (unarchived) and a new issue (archived). One level; a
   project set where there was none cannot be undone yet (linearctl cannot

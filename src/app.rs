@@ -378,6 +378,8 @@ pub struct App {
     pub can_reply: bool,
     /// What `u` reverts: the last write, when it can be.
     pub undo: Option<Undo>,
+    /// The config file views are saved to, if there is a place for one.
+    pub config: Option<std::path::PathBuf>,
     /// linearctl's command surface, when known: which undos it can run.
     pub describe: Option<crate::contract::Describe>,
     /// The watch for the view on screen.
@@ -428,6 +430,7 @@ impl App {
             can_reply: false,
             undo: None,
             describe: None,
+            config: None,
             live: None,
             pending_open: None,
             watch_generation: 0,

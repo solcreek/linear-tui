@@ -59,3 +59,28 @@ fn a_failing_describe_is_reported() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("failed"));
 }
+
+#[test]
+fn views_from_the_config_file_are_checked_first() {
+    let dir = std::env::temp_dir().join(format!("linear-tui-cli-config-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("linear-tui")).unwrap();
+    let run = |toml: &str| {
+        std::fs::write(dir.join("linear-tui/config.toml"), toml).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_linear-tui"))
+            .args(["--linearctl", env!("CARGO_BIN_EXE_fake-linearctl")])
+            .env("XDG_CONFIG_HOME", &dir)
+            .output()
+            .unwrap()
+    };
+    let bad = run("[[view]]\nname = \"Odd\"\nargs = [\"--sort\", \"x\", \"--frobnicate\"]\n");
+    assert_eq!(bad.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&bad.stderr).contains("--frobnicate"),
+        "{}",
+        String::from_utf8_lossy(&bad.stderr)
+    );
+    let broken = run("[[view]\n");
+    assert_eq!(broken.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&broken.stderr).contains("config.toml"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

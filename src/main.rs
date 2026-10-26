@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use linear_tui::app::{App, EditFor, Effect, IssueRef, Msg, default_views, issue_ref, missing};
+use linear_tui::app::{App, EditFor, Effect, IssueRef, Msg, View, default_views, issue_ref, missing};
 use linear_tui::contract::Describe;
 use linear_tui::ctl::{Exec, Runner, Serve, WatchLine, Watcher};
 use linear_tui::images::{self, DiskCache, Loader};
@@ -52,6 +52,9 @@ struct Options {
     cell: Option<(u16, u16)>,
     /// The issue to open first.
     issue: Option<IssueRef>,
+    /// The views: from config.toml, else the built-in ones.
+    views: Vec<View>,
+    config: Option<PathBuf>,
 }
 
 fn parse(args: &[String]) -> Result<Option<Options>, String> {
@@ -96,7 +99,15 @@ fn parse(args: &[String]) -> Result<Option<Options>, String> {
         }
     }
     let program = program.unwrap_or_else(|| "linearctl".into());
-    Ok(Some(Options { program, demo, images, cell, issue }))
+    let config = linear_tui::config::path();
+    let mut views = match &config {
+        Some(p) => linear_tui::config::load(p)?,
+        None => Vec::new(),
+    };
+    if views.is_empty() {
+        views = default_views();
+    }
+    Ok(Some(Options { program, demo, images, cell, issue, views, config }))
 }
 
 /// `--cell-size WxH`, both above zero.
@@ -114,12 +125,12 @@ fn cell_size(v: Option<&String>) -> Result<(u16, u16), String> {
 fn linearctl(opts: &Options) -> Result<(Runner, Describe), String> {
     if !opts.demo {
         let d = Describe::from_linearctl(&opts.program.to_string_lossy())?;
-        check(&d)?;
+        check(&d, &opts.views)?;
         return Ok((Runner::new(&opts.program), d));
     }
     if let Ok(d) = Describe::from_linearctl(&opts.program.to_string_lossy())
         && d.has_global_flag("demo")
-        && check(&d).is_ok()
+        && check(&d, &opts.views).is_ok()
     {
         let mut r = Runner::new(&opts.program);
         r.env.push(("LINEARCTL_DEMO".into(), "1".into()));
@@ -128,13 +139,13 @@ fn linearctl(opts: &Options) -> Result<(Runner, Describe), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let fake = exe.with_file_name(format!("fake-linearctl{}", std::env::consts::EXE_SUFFIX));
     let d = Describe::from_linearctl(&fake.to_string_lossy())?;
-    check(&d)?;
+    check(&d, &opts.views)?;
     Ok((Runner::new(fake), d))
 }
 
 /// That this linearctl has every command and flag the TUI uses.
-fn check(d: &Describe) -> Result<(), String> {
-    let problems = missing(d, &default_views());
+fn check(d: &Describe, views: &[View]) -> Result<(), String> {
+    let problems = missing(d, views);
     if problems.is_empty() {
         Ok(())
     } else {
@@ -259,7 +270,8 @@ fn run(runner: &Runner, describe: &Describe, opts: &Options) -> std::io::Result<
         Arc::new(runner.clone())
     };
     let mut fx = Effects { exec, runner: runner.clone(), tx, images, watcher: None };
-    let mut app = App::new(default_views(), chrono::Utc::now());
+    let mut app = App::new(opts.views.clone(), chrono::Utc::now());
+    app.config = opts.config.clone();
     let mut terminal = ratatui::init();
     app.picker = picker(opts.images, opts.cell);
     app.images_on = opts.images != Images::Off;
