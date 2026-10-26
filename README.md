@@ -62,6 +62,21 @@ detail, `s` `p` `a` `L` `P` set state, priority, assignee, labels, project, `c`
 creates (or comments, in an issue), `E` edits the description, `?` lists the
 rest. The demo takes no writes, but shows every dry run and confirm dialog.
 
+`linear-tui ENG-142` (or the issue's linear.app URL) opens that issue first.
+
+## herdr
+
+In [herdr](https://herdr.dev), the plugin in `herdr-plugin/` opens linear-tui
+over the focused pane, and Ctrl+click on a Linear issue link opens the issue
+there instead of in the browser:
+
+```sh
+herdr plugin install solcreek/linear-tui/herdr-plugin
+```
+
+It needs `linear-tui` and `linearctl` on `PATH` or in `~/.cargo/bin`, `~/go/bin`
+or Homebrew's bin; or set `LINEAR_TUI_BIN` and `LINEARCTL` in herdr's environment.
+
 ## Tests
 
 All tests are Rust.
