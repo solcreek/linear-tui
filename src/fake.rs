@@ -77,7 +77,7 @@ impl Output {
 }
 
 /// Flags that take no value.
-const BOOLEAN: &[&str] = &["json", "yes", "dry-run", "active", "help", "version"];
+const BOOLEAN: &[&str] = &["json", "yes", "dry-run", "active", "help", "version", "reverse"];
 
 /// Parsed argv: positional words and flags (repeatable ones keep every value).
 #[derive(Debug, Default)]
@@ -689,6 +689,10 @@ impl Workspace {
             "cycle",
             "query",
             "updated-since",
+            "reverse",
+            "creator",
+            "due-before",
+            "due-after",
             "sort",
             "limit",
             "cursor",
@@ -745,6 +749,13 @@ impl Workspace {
                     && cycle.as_ref().is_none_or(|c| &i["cycle"] == c)
                     && since.as_ref().is_none_or(|s| i["updatedAt"].as_str().is_some_and(|u| u >= s.as_str()))
                     && query.as_ref().is_none_or(|q| text().contains(q.as_str()))
+                    && args.one("creator").is_none_or(|c| match c {
+                        "me" => i["creator"] == viewer,
+                        "none" => i["creator"].is_null(),
+                        email => i["creator"] == email,
+                    })
+                    && args.one("due-before").is_none_or(|d| i["dueDate"].as_str().is_some_and(|x| x <= d))
+                    && args.one("due-after").is_none_or(|d| i["dueDate"].as_str().is_some_and(|x| x >= d))
                     && (args.all("priority").is_empty()
                         || args.all("priority").iter().any(|p| priority_value(p) == i["priority"].as_i64()))
             })
@@ -758,7 +769,31 @@ impl Workspace {
                 let p = i["priority"].as_i64().unwrap_or(0);
                 (if p == 0 { 5 } else { p }, std::cmp::Reverse(updated(i)))
             }),
-            s => return Err(format!("--sort: not one of updated, created, priority: {s}")),
+            "title" => issues.sort_by_key(|i| i["title"].as_str().unwrap_or_default().to_lowercase()),
+            "state" => {
+                const ORDER: [&str; 7] =
+                    ["started", "unstarted", "backlog", "triage", "completed", "canceled", "duplicate"];
+                let rank = |i: &Value| {
+                    let kind = self
+                        .named("states", i["state"].as_str().unwrap_or_default())
+                        .map(|s| s["type"].clone());
+                    ORDER.iter().position(|o| kind.as_ref().is_some_and(|k| k == o)).unwrap_or(ORDER.len())
+                };
+                issues.sort_by_key(|i| (rank(i), std::cmp::Reverse(updated(i))));
+            }
+            "due-date" => issues.sort_by_key(|i| i["dueDate"].as_str().unwrap_or("9999").to_string()),
+            s => {
+                return Err(format!(
+                    "--sort: not one of updated, created, priority, due-date, title, state: {s}"
+                ));
+            }
+        }
+        if args.has("reverse") {
+            issues.reverse();
+            // Undated issues stay last, as linearctl keeps them.
+            if args.one("sort") == Some("due-date") {
+                issues.sort_by_key(|i| i["dueDate"].is_null());
+            }
         }
         let rows = issues.into_iter().map(|i| self.row(i)).collect();
         Ok(Output::page(pick_all(rows, args.one("fields")), limit, args.one("cursor")))
@@ -984,6 +1019,27 @@ mod tests {
     }
 
     #[test]
+    fn sorts_and_filters_of_0_6_0() {
+        let ids = |cmd: &str| idents(&json_of(cmd));
+        assert_eq!(ids("issue list --sort due-date --json")[0], "ENG-140", "the one with a due date");
+        assert_eq!(
+            ids("issue list --sort due-date --reverse --json")[0],
+            "ENG-140",
+            "undated last both ways"
+        );
+        assert_eq!(ids("issue list --sort title --json")[0], "ENG-144", "Add a regression test…");
+        let t = ids("issue list --sort title --reverse --json");
+        assert_eq!(t.last().unwrap(), "ENG-144");
+        let by_state = ids("issue list --sort state --json");
+        assert_eq!(by_state.last().unwrap(), "ENG-131", "completed after the rest");
+        assert_eq!(ids("issue list --creator me --json").len(), 4);
+        assert_eq!(ids("issue list --creator none --json").len(), 0);
+        assert_eq!(ids("issue list --creator aiko@northwind.example --json").len(), 4);
+        assert_eq!(ids("issue list --due-before 2026-12-01 --json"), ["ENG-140"]);
+        assert!(ids("issue list --due-after 2026-12-02 --json").is_empty());
+    }
+
+    #[test]
     fn saved_views() {
         let views = json_of("view list --json");
         assert_eq!(views["shown"], 2);
@@ -1012,7 +1068,7 @@ mod tests {
         assert_eq!(p[..2], ["ENG-158", "ENG-142"]);
         assert_eq!(p.last().unwrap(), "ENG-120", "no priority goes last");
         assert_eq!(ids("issue list --sort created --json")[0], "ENG-158");
-        assert_eq!(go("issue list --sort title --json").code, 2);
+        assert_eq!(go("issue list --sort size --json").code, 2);
     }
 
     #[test]
