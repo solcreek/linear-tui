@@ -62,7 +62,7 @@ issues, Active and Triage, `/` filters (`enter` searches every issue), `c`
 creates, `e` edits, `r` renames, `s` `p` `a` `L` `P` `C` `E` set status,
 priority, assignee, labels, project, cycle, estimate, `i` assigns to you, `m`
 comments, `ctrl-e` edits the description in `$EDITOR`, `y` `Y` `b` copy the ID,
-URL and branch name, `ctrl-z` undoes, `?` lists the rest. The demo takes no writes, but shows every dry run and confirm dialog.
+URL and branch name, `ctrl-z` undoes, and `ctrl-k` finds any command by name. The demo takes no writes, but shows every dry run and confirm dialog.
 
 `linear-tui ENG-142` (or the issue's linear.app URL) opens that issue first.
 

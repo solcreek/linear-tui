@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ctrl-k` opens a command palette, as in Linear: every action that applies
+  here, by name, with its key; typing narrows it, `enter` runs it.
 - Keys follow Linear's wherever a terminal allows. `r` renames in place, `y` `Y` `b` copy the ID, URL and
   branch name (through the terminal, so over SSH too), `C` and `E` set the
   cycle and estimate (linearctl 0.6.0), `g m` `g a` `g t` jump to My issues,

@@ -134,10 +134,17 @@ work in the other; where a terminal cannot (Linear's `Cmd` chords), `Ctrl`
 stands in.
 
 Global keys: `?` help, `q` back / quit from the list, `Ctrl-c` quit, `Ctrl-k`
-command palette (later), `Ctrl-r` / `F5` refresh the current screen, `y` `Y` `b`
+command palette, `Ctrl-r` / `F5` refresh the current screen, `y` `Y` `b`
 copy the identifier, URL and branch name (OSC 52, so it works over SSH), `g m`
 `g a` `g t` My issues / Active / Triage, `u` / `Ctrl-z` undo the last write,
 `Tab` next view.
+
+**Command palette** (`Ctrl-k`, as in Linear): every action that applies to the
+screen and the issue in hand, by name, with its key beside it; typed words
+narrow it (`ch stat` finds *Change status*, `ctrl-r` finds *Refresh*). Each
+command is its key, so choosing one does exactly what the key does, and the
+palette cannot drift from the keymap. *Go to <view>* rows follow the views, and
+*Undo <what>* appears when there is something to undo.
 
 ### 1. Issue list (home)
 
