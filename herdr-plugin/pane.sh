@@ -20,8 +20,10 @@ or set LINEAR_TUI_BIN in herdr's environment."
 status=$?
 [ "$status" -eq 0 ] && exit 0
 # Blame linearctl only when linear-tui had to find it and could not: not for
-# the demo, a --linearctl given, or any other failure.
-if [ -z "${LINEAR_TUI_DEMO:-}" ] && [ -z "${LINEARCTL:-}" ] && ! command -v linearctl >/dev/null 2>&1; then
+# the demo, a --linearctl given, or a usage error (exit 2, which comes before
+# linear-tui looks for linearctl).
+if [ "$status" -ne 2 ] && [ -z "${LINEAR_TUI_DEMO:-}" ] && [ -z "${LINEARCTL:-}" ] &&
+    ! command -v linearctl >/dev/null 2>&1; then
     case " ${LINEAR_TUI_ARGS:-} " in
     *" --demo "* | *" --linearctl "*) ;;
     *) fail "
