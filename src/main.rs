@@ -194,6 +194,8 @@ fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
     match mode {
         Images::Off => None,
         Images::Auto => Some(make()),
+        // Half blocks need no terminal support, so no query.
+        Images::Force(ProtocolType::Halfblocks) if cell.is_none() => Some(Picker::halfblocks()),
         Images::Force(p) => {
             let mut picker = make();
             picker.set_protocol_type(p);

@@ -3,6 +3,7 @@
 use linear_tui::contract::Describe;
 
 const SNAPSHOT: &str = include_str!("fixtures/linearctl-describe-0.1.0.json");
+const SNAPSHOT_0_2_0: &str = include_str!("fixtures/linearctl-describe-0.2.0.json");
 const DESIGN: &str = include_str!("../docs/design.md");
 
 fn assert_design_matches(d: &Describe) {
@@ -24,6 +25,26 @@ fn snapshot_is_linearctl_0_1_0() {
 #[test]
 fn design_matches_the_0_1_0_snapshot() {
     assert_design_matches(&Describe::from_json(SNAPSHOT).unwrap());
+}
+
+#[test]
+fn design_matches_the_0_2_0_snapshot() {
+    let d = Describe::from_json(SNAPSHOT_0_2_0).unwrap();
+    assert_eq!(d.version, "0.2.0");
+    assert_design_matches(&d);
+}
+
+#[test]
+fn the_app_works_with_both_releases() {
+    use linear_tui::app::{default_views, missing};
+    for snap in [SNAPSHOT, SNAPSHOT_0_2_0] {
+        let d = Describe::from_json(snap).unwrap();
+        assert!(
+            missing(&d, &default_views()).is_empty(),
+            "linearctl {}",
+            d.version
+        );
+    }
 }
 
 /// Against the installed linearctl: `LINEARCTL_LIVE=linearctl cargo test`.
