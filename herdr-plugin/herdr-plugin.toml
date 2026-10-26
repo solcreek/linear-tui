@@ -8,22 +8,23 @@ platforms = ["linux", "macos"]
 
 # open.sh resolves the binaries (herdr starts panes with a short PATH) and
 # passes the issue to open, if any, in LINEAR_TUI_ISSUE; LINEAR_TUI_DEMO for
-# the demo; LINEAR_TUI_ARGS for anything else (e.g. "--images kitty").
+# the demo; LINEAR_TUI_ARGS for anything else. pane.sh runs linear-tui, and
+# keeps the reason on screen when it cannot start.
 [[panes]]
 id = "tui"
 title = "linear-tui"
 placement = "overlay"
-command = ["sh", "-c", "exec \"${LINEAR_TUI_BIN:-linear-tui}\" ${LINEAR_TUI_ARGS:-} ${LINEAR_TUI_DEMO:+--demo} ${LINEAR_TUI_ISSUE:+\"$LINEAR_TUI_ISSUE\"}"]
+command = ["sh", "pane.sh"]
 
 # The same as a popup. herdr does not pass terminal graphics through one, so
-# it shows no images.
+# its images are half blocks.
 [[panes]]
 id = "popup"
 title = "linear-tui"
 placement = "popup"
 width = "90%"
 height = "85%"
-command = ["sh", "-c", "exec \"${LINEAR_TUI_BIN:-linear-tui}\" ${LINEAR_TUI_ARGS:-} ${LINEAR_TUI_DEMO:+--demo} ${LINEAR_TUI_ISSUE:+\"$LINEAR_TUI_ISSUE\"}"]
+command = ["sh", "pane.sh"]
 
 [[actions]]
 id = "open"

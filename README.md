@@ -83,6 +83,7 @@ herdr plugin action invoke solcreek.linear-tui.demo   # the demo workspace, no a
 
 It needs `linear-tui` and `linearctl` on `PATH` or in `~/.cargo/bin`, `~/go/bin`
 or Homebrew's bin; or set `LINEAR_TUI_BIN` and `LINEARCTL` in herdr's environment.
+When one is missing, the pane says which and how to get it.
 
 The actions are `solcreek.linear-tui.open` (over the focused pane),
 `.open-split`, `.popup`, `.demo` and `.open-link` (the link handler's). Bind
@@ -96,9 +97,9 @@ command = "solcreek.linear-tui.open"
 description = "Linear"
 ```
 
-Images inside herdr need `LINEAR_TUI_ARGS="--images kitty"` in herdr's
-environment (detection cannot see past herdr to your terminal); they show over
-the pane and in a split, but not in a popup.
+Images show over the pane and in a split; a popup passes no terminal graphics,
+so there they are half blocks. `LINEAR_TUI_ARGS` in herdr's environment adds
+arguments to every linear-tui the plugin starts (e.g. `--images off`).
 
 ## Tests
 
@@ -115,4 +116,5 @@ matching LLVM: `LLVM_COV=$(brew --prefix llvm@22)/bin/llvm-cov`
 Screenshots: `scripts/screenshots.sh` drives `--demo` in tmux, records what it
 writes (kitty graphics included) and renders that with termshot (`TERMSHOT=/path/to/termshot` if it is not on `PATH`).
 `scripts/herdr-screenshots.sh` does the same for the herdr plugin, in a herdr
-of its own that shares nothing with yours.
+of its own that shares nothing with yours; it needs termshot 0.4.0 or later
+(`--cell`).

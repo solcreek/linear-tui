@@ -524,13 +524,20 @@ Install: `herdr plugin install solcreek/linear-tui/herdr-plugin`, or
   status line naming both.
 - Pane `tui` runs linear-tui; actions `open` (the issue list) and `open-link`
   open it as an overlay over the focused pane, so `esc`/`q` returns to it.
-  `open-split` opens it beside the pane instead, `popup` in pane `popup`
-  (herdr passes no terminal graphics through a popup, so no images there), and
+  `open-split` opens it beside the pane instead, `popup` in pane `popup`, and
   `demo` on the fictional workspace (`LINEAR_TUI_DEMO`).
-- `LINEAR_TUI_ARGS` in herdr's environment adds arguments: image detection
-  cannot see past herdr to the terminal, so images need `--images kitty`.
-  `scripts/herdr-screenshots.sh` renders the README's herdr screenshots in a
-  herdr with its own `HOME`, server and tmux.
+- Images: herdr answers the graphics query itself. In a split it says kitty;
+  in an overlay (herdr 0.9.5) it says no graphics, yet draws kitty images, so
+  in a herdr pane with a `HERDR_PANE_ID` detected half blocks become kitty. A
+  popup has no pane id and really drops graphics: half blocks there.
+  `LINEAR_TUI_ARGS` in herdr's environment adds arguments to every linear-tui
+  the plugin starts. `scripts/herdr-screenshots.sh` renders the README's herdr
+  screenshots in a herdr with its own `HOME`, server and tmux.
+- Both panes run `pane.sh`. When linear-tui cannot start (not found, no
+  linearctl, the wrong linearctl), the reason stays in the pane until enter,
+  with where to get what is missing; `open.sh` opens the pane even without
+  linear-tui so that this shows, since an action's own failure is only in
+  herdr's plugin log.
 - Link handler `issue` sends Ctrl+clicks on Linear issue URLs to `open-link`,
   which opens a fresh pane on that issue (`HERDR_PLUGIN_CLICKED_URL`).
 - herdr starts plugin commands with a short PATH, so `open.sh` looks in the

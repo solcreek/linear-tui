@@ -13,11 +13,9 @@ H=${HERDR_BIN_PATH:-herdr}
 # linearctl are usually installed.
 PATH="$HOME/.cargo/bin:$HOME/go/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+# Not found, the pane opens all the same and pane.sh says so there: an
+# action's own failure is visible only in herdr's plugin log.
 bin=${LINEAR_TUI_BIN:-$(command -v linear-tui || true)}
-if [ -z "$bin" ]; then
-    echo "linear-tui: not found on PATH; set LINEAR_TUI_BIN" >&2
-    exit 1
-fi
 ctl=${LINEARCTL:-$(command -v linearctl || true)}
 
 # A popup is its own pane: --placement cannot name one.
