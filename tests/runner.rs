@@ -47,11 +47,12 @@ fn maps_every_exit_code() {
             retry_at: Some("2026-10-26T13:00:00Z".into())
         }
     );
+    assert_eq!(fail("7"), Failure::Conflict("injected failure 7".into()));
     assert_eq!(
-        fail("7"),
+        fail("8"),
         Failure::Crashed {
-            code: Some(7),
-            stderr: "injected failure 7".into()
+            code: Some(8),
+            stderr: "injected failure 8".into()
         }
     );
 }

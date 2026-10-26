@@ -24,3 +24,4 @@ sha2 = "0.10"
 shlex = "2"
 unicode-width = "0.2"
 ureq = "3"
+uuid = { version = "1", features = ["v4"] }

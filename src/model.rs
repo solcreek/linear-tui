@@ -211,6 +211,40 @@ pub struct AuthStatus {
     pub source: String,
 }
 
+/// An entry of a lookup list: a team, workflow state, label, user or
+/// project. Each kind fills the fields it has.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Named {
+    pub id: String,
+    pub name: String,
+    /// Teams.
+    pub key: String,
+    /// States: triage, backlog, unstarted, ...
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub color: Option<String>,
+    pub position: f64,
+    /// Users.
+    pub email: String,
+    pub display_name: String,
+    pub team: Option<Team>,
+}
+
+/// What a write prints: `changed`, whether it was a dry run, the input it
+/// sends (or would), and the written issue or comment.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WriteResult {
+    pub changed: bool,
+    pub dry_run: bool,
+    pub id: Option<String>,
+    pub identifier: Option<String>,
+    pub input: serde_json::Value,
+    pub issue: Option<IssueRow>,
+    pub comment: Option<Comment>,
+}
+
 /// What a failed command prints: `{"error": …, "usage": …}`, plus
 /// `retryAt` when rate-limited.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

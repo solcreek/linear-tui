@@ -55,6 +55,86 @@ pub fn auth_status_argv() -> Vec<String> {
     argv(&["auth", "status", "--json"])
 }
 
+/// The names a picker offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Lookup {
+    Teams,
+    States,
+    Labels,
+    Users,
+    Projects,
+}
+
+/// All of one lookup, for a team where it is per team.
+pub fn lookup_argv(what: Lookup, team: &str) -> Vec<String> {
+    let mut a = match what {
+        Lookup::Teams => argv(&["team", "list"]),
+        Lookup::States => argv(&["state", "list", "--team", team]),
+        Lookup::Labels => argv(&["label", "list", "--team", team]),
+        Lookup::Users => argv(&["user", "list", "--active"]),
+        Lookup::Projects => argv(&["project", "list", "--team", team]),
+    };
+    a.extend(argv(&["--limit", "0", "--json"]));
+    a
+}
+
+/// Whether a write is previewed or applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    DryRun,
+    Yes,
+}
+
+impl Mode {
+    fn flag(self) -> &'static str {
+        match self {
+            Mode::DryRun => "--dry-run",
+            Mode::Yes => "--yes",
+        }
+    }
+}
+
+/// A write's argv in the other mode: the same command, previewed or applied.
+pub fn with_mode(argv: &[String], mode: Mode) -> Vec<String> {
+    let mut a: Vec<String> = argv
+        .iter()
+        .filter(|w| *w != "--dry-run" && *w != "--yes")
+        .cloned()
+        .collect();
+    let at = a.iter().position(|w| w == "--json").unwrap_or(a.len());
+    a.insert(at, mode.flag().into());
+    a
+}
+
+/// `issue update ISSUE` with the given flags (`--state Done`, ...).
+pub fn update_argv(issue: &str, flags: &[(&str, &str)], mode: Mode) -> Vec<String> {
+    let mut a = argv(&["issue", "update", issue]);
+    for (f, v) in flags {
+        a.extend([format!("--{f}"), (*v).to_string()]);
+    }
+    a.extend([mode.flag().into(), "--json".into()]);
+    a
+}
+
+/// `issue create` with the given flags and the client-made id.
+pub fn create_argv(flags: &[(&str, &str)], id: &str, mode: Mode) -> Vec<String> {
+    let mut a = argv(&["issue", "create"]);
+    for (f, v) in flags {
+        a.extend([format!("--{f}"), (*v).to_string()]);
+    }
+    a.extend(argv(&["--id", id, mode.flag(), "--json"]));
+    a
+}
+
+/// `comment create ISSUE` with the client-made id; the body goes in a file.
+pub fn comment_argv(issue: &str, id: &str, mode: Mode) -> Vec<String> {
+    argv(&["comment", "create", issue, "--id", id, mode.flag(), "--json"])
+}
+
+pub fn archive_argv(issue: &str, mode: Mode) -> Vec<String> {
+    argv(&["issue", "archive", issue, mode.flag(), "--json"])
+}
+
 /// Why a call produced no result.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Failure {
@@ -68,6 +148,8 @@ pub enum Failure {
     Busy(String),
     /// Exit 5: no API key, or Linear rejected it.
     Auth(String),
+    /// Exit 7 (linearctl 0.2.0): the issue changed since `--if-updated-at`.
+    Conflict(String),
     /// Exit 6: the budget is spent until `retry_at` (RFC 3339).
     RateLimited {
         message: String,
@@ -87,7 +169,9 @@ impl Failure {
     /// One line for the status bar.
     pub fn message(&self) -> String {
         match self {
-            Self::Failed(m) | Self::Partial(m) | Self::Busy(m) | Self::Auth(m) => m.clone(),
+            Self::Failed(m) | Self::Partial(m) | Self::Busy(m) | Self::Auth(m) | Self::Conflict(m) => {
+                m.clone()
+            }
             Self::Usage(m) => format!("internal error (bad linearctl invocation): {m}"),
             Self::RateLimited {
                 message,
@@ -219,6 +303,7 @@ impl Runner {
             Some(3) => Failure::Partial(doc.error),
             Some(4) => Failure::Busy(doc.error),
             Some(5) => Failure::Auth(doc.error),
+            Some(7) => Failure::Conflict(doc.error),
             Some(6) => Failure::RateLimited {
                 message: doc.error,
                 retry_at: doc.retry_at,
@@ -275,6 +360,75 @@ mod tests {
         assert!(s.contains(&"--comments=50".to_string()));
         assert!(s.windows(2).any(|w| w == ["--signed-urls", "300"]));
         assert_valid(&auth_status_argv());
+    }
+
+    fn describe_0_2_0() -> Describe {
+        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.2.0.json")).unwrap()
+    }
+
+    fn assert_valid_in_both(argv: &[String]) {
+        assert_valid(argv);
+        let problems = describe_0_2_0().check_argv(argv);
+        assert!(problems.is_empty(), "0.2.0: {argv:?}: {problems:?}");
+    }
+
+    #[test]
+    fn lookup_argvs_are_valid_linearctl() {
+        for what in [
+            Lookup::Teams,
+            Lookup::States,
+            Lookup::Labels,
+            Lookup::Users,
+            Lookup::Projects,
+        ] {
+            let a = lookup_argv(what, "ENG");
+            assert_valid_in_both(&a);
+            assert!(a.windows(2).any(|w| w == ["--limit", "0"]));
+        }
+        assert!(
+            lookup_argv(Lookup::States, "ENG")
+                .windows(2)
+                .any(|w| w == ["--team", "ENG"])
+        );
+        assert!(!lookup_argv(Lookup::Users, "ENG").contains(&"--team".to_string()));
+    }
+
+    #[test]
+    fn write_argvs_are_valid_linearctl() {
+        let flags = [
+            ("state", "In Review"),
+            ("priority", "2"),
+            ("add-label", "Bug"),
+            ("assignee", "me"),
+        ];
+        let u = update_argv("ENG-142", &flags, Mode::DryRun);
+        assert_valid_in_both(&u);
+        assert_eq!(u[..5], ["issue", "update", "ENG-142", "--state", "In Review"]);
+        let c = create_argv(
+            &[("team", "ENG"), ("title", "x"), ("label", "Bug")],
+            "id-1",
+            Mode::Yes,
+        );
+        assert_valid_in_both(&c);
+        assert!(c.windows(2).any(|w| w == ["--id", "id-1"]) && c.contains(&"--yes".to_string()));
+        assert_valid_in_both(&comment_argv("ENG-142", "id-2", Mode::DryRun));
+        assert_valid_in_both(&archive_argv("ENG-142", Mode::Yes));
+        // The text flags the runner appends exist too.
+        let mut d = update_argv("ENG-1", &[], Mode::DryRun);
+        d.splice(3..3, ["--description-file".to_string(), "/tmp/x".to_string()]);
+        assert_valid_in_both(&d);
+        let mut b = comment_argv("ENG-1", "i", Mode::DryRun);
+        b.splice(3..3, ["--body-file".to_string(), "/tmp/x".to_string()]);
+        assert_valid_in_both(&b);
+    }
+
+    #[test]
+    fn switching_mode_keeps_the_rest() {
+        let dry = update_argv("ENG-142", &[("priority", "1")], Mode::DryRun);
+        let yes = with_mode(&dry, Mode::Yes);
+        assert_eq!(yes, update_argv("ENG-142", &[("priority", "1")], Mode::Yes));
+        assert_eq!(with_mode(&yes, Mode::DryRun), dry);
+        assert_eq!(with_mode(&["a".to_string()], Mode::Yes), ["a", "--yes"]);
     }
 
     #[test]
