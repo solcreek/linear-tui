@@ -3,6 +3,7 @@
 pub mod app;
 pub mod contract;
 pub mod ctl;
+pub mod editor;
 pub mod fake;
 pub mod images;
 pub mod markdown;
