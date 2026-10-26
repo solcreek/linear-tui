@@ -56,11 +56,13 @@ pbpaste | linearctl auth login --yes
 target/debug/linear-tui
 ```
 
-Keys: `j`/`k` move, `enter` opens, `esc` goes back, `tab` or `1`–`4` switch views,
-`/` filters (`enter` searches every issue), `]`/`[` step through issues in the
-detail, `s` `p` `a` `L` `P` set state, priority, assignee, labels, project, `c`
-creates (or comments, in an issue), `E` edits the description, `?` lists the
-rest. The demo takes no writes, but shows every dry run and confirm dialog.
+Keys follow Linear's own wherever a terminal allows: `j`/`k` move, `enter`
+opens, `esc` goes back, `J`/`K` step through issues, `g m` `g a` `g t` jump to My
+issues, Active and Triage, `/` filters (`enter` searches every issue), `c`
+creates, `e` edits, `r` renames, `s` `p` `a` `L` `P` `C` `E` set status,
+priority, assignee, labels, project, cycle, estimate, `i` assigns to you, `m`
+comments, `ctrl-e` edits the description in `$EDITOR`, `y` `Y` `b` copy the ID,
+URL and branch name, `ctrl-z` undoes, `?` lists the rest. The demo takes no writes, but shows every dry run and confirm dialog.
 
 `linear-tui ENG-142` (or the issue's linear.app URL) opens that issue first.
 

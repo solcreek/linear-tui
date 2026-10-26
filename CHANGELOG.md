@@ -13,10 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Keys follow Linear's wherever a terminal allows. `r` renames in place, `y` `Y` `b` copy the ID, URL and
+  branch name (through the terminal, so over SSH too), `C` and `E` set the
+  cycle and estimate (linearctl 0.6.0), `g m` `g a` `g t` jump to My issues,
+  Active and Triage, `F` clears the filters, and `ctrl-z` undoes like `u`.
 - With linearctl 0.6.0, the new-issue and edit forms set the cycle, the
   estimate and the due date (typed as YYYY-MM-DD, or today, a week or a month
   on); editing can clear each, and undo puts them back.
-- With linearctl 0.6.0: `o` also sorts by due date, title and status, and
+- With linearctl 0.6.0: `D` also sorts by due date, title and status, and
   the filter panel has creator, due after, due before and reverse rows (a due
   date can be typed as YYYY-MM-DD).
 - `V` shows one of Linear's saved issue views (linearctl 0.6.0), as a
@@ -40,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clear a project), and the notice says so.
 - `R` in an issue replies in one of its comment threads (linearctl 0.2.0 or
   later): pick the thread, write in `$EDITOR`, confirm.
-- `o` cycles the list's order between updated, created and priority.
+- `D` cycles the list's order between updated, created and priority.
 - Live updates: with linearctl 0.2.0 or later, the list follows `linearctl
   watch` for the view on screen (`● live` in the header): changed issues update
   in place, new ones appear on top, ones that stop matching go, and the open
@@ -57,17 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sixel or iTerm2 protocol, or with half blocks elsewhere. Only uploads on
   uploads.linear.app are fetched, from their signed URLs, with linearctl's
   keyed `file download` when a link has expired; files are cached on disk by
-  upload path. `i` turns images off and on; `--images MODE` and
+  upload path. `I` turns images off and on; `--images MODE` and
   `--cell-size WxH` override what the terminal reports.
 - Search: `Enter` in the `/` filter searches every issue's title, description
   and comments on the server; `Esc` returns to the view. At most 20 searches a
   minute, leaving part of Linear's 30 for agents on the same key.
 - Editing, from the list or the open issue: `s` state, `p` priority, `a`
-  assignee, `L` labels, `P` project through pickers (type to filter), `A`
+  assignee, `L` labels, `P` project through pickers (type to filter), `i`
   assigns to you, `x` archives. Each runs linearctl's dry run first; quick
   edits apply when it changes something.
-- `c` in the list opens a form for a new issue; `c` in an issue writes a
-  comment and `E` its description, both in `$EDITOR`. These show the exact
+- `c` opens a form for a new issue; `m` writes a comment and `ctrl-e`
+  edits the description, both in `$EDITOR`. These show the exact
   linearctl command before sending. A new issue's id is made when the form
   opens, so a retry never creates two. With linearctl 0.2.0 a description
   write is refused if the issue changed since it was loaded, and the edited

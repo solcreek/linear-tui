@@ -129,9 +129,15 @@ Before linearctl 0.6.0 a project set where there was none cannot be reverted
 
 ## Screens and keybindings
 
-Global keys: `?` help, `q` back / quit from the list, `Ctrl-c` quit, `:` action
-palette, `r` refresh the current screen, `y` copy menu (identifier, URL, branch
-name, **the linearctl command** for this view or action), `Tab` next view.
+Keys follow Linear's own wherever a terminal allows, so hands trained on one
+work in the other; where a terminal cannot (Linear's `Cmd` chords), `Ctrl`
+stands in.
+
+Global keys: `?` help, `q` back / quit from the list, `Ctrl-c` quit, `Ctrl-k`
+command palette (later), `Ctrl-r` / `F5` refresh the current screen, `y` `Y` `b`
+copy the identifier, URL and branch name (OSC 52, so it works over SSH), `g m`
+`g a` `g t` My issues / Active / Triage, `u` / `Ctrl-z` undo the last write,
+`Tab` next view.
 
 ### 1. Issue list (home)
 
@@ -150,20 +156,25 @@ updated, then assignee.
 
 | key | action |
 |---|---|
-| `j` `k` / arrows, `g` `G`, `Ctrl-d` `Ctrl-u` | move |
+| `j` `k` / arrows, `g g` `G`, `Ctrl-d` `Ctrl-u` | move |
 | `Enter` / `l` | open detail (split pane at ≥ 140 columns, full screen otherwise) |
 | `/` | filter loaded rows locally as you type; `Enter` in the box runs a server search |
 | `f` | filter panel |
-| `o` | sort cycle: updated → created → priority, and with linearctl 0.6.0 → due date → title → status |
+| `F` | clear the local filter and any applied filter or saved view |
+| `D` | sort cycle: updated → created → priority, and with linearctl 0.6.0 → due date → title → status |
 | `1`…`9`, `Tab` | views (from `config.toml`, else four built in) |
 | `V` | one of Linear's saved issue views (linearctl 0.6.0: `view list`, `issue list --view`) |
 | `e` | edit the issue's fields (opens the issue first) |
-| `u` | undo the last write |
-| `s` `p` `a` `L` `P` | quick edit state / priority / assignee / labels / project of the selected issue |
-| `A` | assign to me |
+| `u` `Ctrl-z` | undo the last write |
+| `s` `p` `a` `L` `P` | quick edit status / priority / assignee / labels / project of the selected issue |
+| `C` `E` | cycle / estimate (linearctl 0.6.0) |
+| `r` | rename in place |
+| `i` | assign to me |
+| `m` | comment |
 | `c` | create issue |
 | `x` | archive (confirm) |
-| `O` | open in browser |
+| `y` `Y` `b` | copy identifier / URL / branch name |
+| `o` | open in browser |
 | `n` at the bottom | load the next page (`--cursor`); also automatic when scrolling past the end |
 
 **Views** are named filter sets, each the `issue list` flags it stands for. Four
@@ -200,7 +211,7 @@ Calls:
 | open a view | `linearctl issue list <view args> --limit 50 --fields id,identifier,title,priority,state,assignee,labels,team,updatedAt --json` |
 | scroll past the end | the same with `--cursor <nextCursor>` |
 | refresh timer (below) | the same with `--updated-since <newest updatedAt seen>` and `--limit 250`; rows merge by `id` |
-| `r` | the first page again, replacing the list |
+| `Ctrl-r` | the first page again, replacing the list |
 
 ### 2. Issue detail
 
@@ -221,29 +232,28 @@ Calls:
 
 | key | action |
 |---|---|
-| `j` `k`, `Ctrl-d` `Ctrl-u`, `g` `G` | scroll |
-| `]` `[` | next / previous issue in the list without leaving the detail |
+| `j` `k`, `Ctrl-d` `Ctrl-u`, `g g` `G` | scroll |
+| `J` `K` | next / previous issue in the list without leaving the detail |
 | `e` | edit the issue's fields in the form |
-| `E` | description in `$EDITOR` |
+| `Ctrl-e` | description in `$EDITOR` |
 | `R` | reply in one of the comment threads (linearctl 0.2.0) |
 | `u` | undo the last write |
-| `s` `p` `a` `L` `P` `A` `x` | as in the list |
-| `c` | comment in `$EDITOR` |
+| `s` `p` `a` `L` `P` `C` `E` `i` `r` `x` `y` `Y` `b` | as in the list |
+| `m` | comment in `$EDITOR` |
 | `Tab` | focus the next link, sub-issue, relation or image; `Enter` follows it (later) |
-| `i` | toggle images (off → alt text only) |
+| `I` | toggle images (off → alt text only) |
 | `v` | the focused image full screen (later) |
 | `d` | download the focused upload (later) |
-| `C` | load all comments when more than shown (later) |
-| `O` | open in browser |
+| `o` | open in browser |
 
 Calls:
 
 | when | command |
 |---|---|
 | open | `linearctl issue show <ID> --comments=50 --signed-urls 300 --json` |
-| `C` and more than 50 comments | `linearctl comment list <ID> --limit 0 --json` |
+| more than 50 comments (later) | `linearctl comment list <ID> --limit 0 --json` |
 | re-open within 2 min | none: the cached result is shown |
-| re-open later, or `r` | `issue show` again; shown stale until it returns |
+| re-open later, or `Ctrl-r` | `issue show` again; shown stale until it returns |
 
 Comments are threaded by `parent`, oldest first, replies indented under their root.
 
@@ -280,12 +290,13 @@ and opens the new issue's detail.
   `p` priority (0–4), `a` assignee (`me`, `none`, or an email), `L` labels
   (multi-select; sends `--add-label` / `--remove-label` for the difference, so a
   label added concurrently by someone else survives).
-- `P` project, `A` assign to me, `x` archive (confirmed).
+- `P` project, `C` cycle and `E` estimate (linearctl 0.6.0), `i` assign to me,
+  `r` rename in place, `x` archive (confirmed).
 - `e`: the issue's fields in the create form — title, status, priority, assignee,
   labels, project, and with linearctl 0.6.0 cycle, estimate and due date — sent as
   one `issue update` of what changed (`--if-updated-at` where linearctl has it,
   `none` to clear), confirmed first; undo restores each changed field.
-- `E` description: the current text in a temp file (0600) in `$EDITOR`; on save,
+- `Ctrl-e` description: the current text in a temp file (0600) in `$EDITOR`; on save,
   `linearctl issue update <ID> --description-file PATH --dry-run --json`, a confirm
   dialog with the exact command, then `--yes`.
 
@@ -293,11 +304,11 @@ Concurrent edits: with linearctl 0.2.0 (detected from `describe`), the write
 carries `--if-updated-at` with the `updatedAt` the detail was loaded with, and
 linearctl refuses it with exit 7 if the issue changed since. Then, or when any
 description write fails or is cancelled, the edited text is kept as a draft, and
-the next `E` opens it.
+the next `Ctrl-e` opens it.
 
 ### 6. Comment
 
-`c` in the detail opens `$EDITOR`; on save,
+`m` opens `$EDITOR`; on save,
 `linearctl comment create <ID> --body-file PATH --id <uuid> --dry-run --json`, a
 confirm dialog, then `--yes`. The new comment is appended from the result.
 `R` replies in a thread (linearctl 0.2.0's `comment create --parent`): pick the
