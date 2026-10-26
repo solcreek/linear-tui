@@ -7,7 +7,7 @@ can do with the CLI — and the TUI shows the exact command for each action (see
 [Command parity](#command-parity)).
 
 Built against linearctl **0.1.0**. Every `linearctl` invocation in this file is
-checked against linearctl 0.3.0's `describe` by `cargo test` (`src/contract.rs`);
+checked against linearctl 0.4.0's `describe` by `cargo test` (`src/contract.rs`);
 the commands under "(proposed)" headings do not exist yet.
 
 Facts below marked *verified* were run against the live API on 2026-10-26.
@@ -48,7 +48,7 @@ Modules, each tested as it is written (`cargo llvm-cov`: 97% of lines):
 
 | module | does | tested by |
 |---|---|---|
-| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.3.0 snapshots |
+| `contract` | reads `linearctl describe`; checks command lines against it | unit; this doc and every argv the app builds, against the 0.1.0 and 0.4.0 snapshots |
 | `ctl` | argv builders; `Runner` spawns with a deadline and maps exit codes; `Exec` | unit; the fake binary with injected faults |
 | `model` | serde types for every result; unknown fields ignored, missing ones defaulted | fixtures from the fake and from linearctl 0.1.0 |
 | `sanitize` | strips control, C1 and bidi characters from all Linear text | unit |
@@ -521,7 +521,7 @@ hook reopens linear-tui in the panes it ran in before a herdr restart.
 Tests ship with each change, in Rust only; CI fails below 90% line coverage
 (`cargo llvm-cov`; 97% now, the uncovered part is mostly the terminal loop).
 
-- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.3.0
+- **Contract**: the describe snapshots of linearctl 0.1.0 and 0.4.0
   (`tests/fixtures/`) are checked against every argv the app builds and against
   this doc. `LINEARCTL_LIVE=linearctl cargo test` checks the installed one.
 - **Fake**: `fake-linearctl` serves `demo/workspace.json` in linearctl's shapes,

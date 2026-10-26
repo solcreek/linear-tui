@@ -234,7 +234,7 @@ mod tests {
         argv.extend(["--since".into(), "2026-10-26T12:00:00Z".into(), json]);
         assert_eq!(fx, [Effect::Watch { generation: 1, argv: argv.clone() }]);
         let d = crate::contract::Describe::from_json(include_str!(
-            "../../tests/fixtures/linearctl-describe-0.3.0.json"
+            "../../tests/fixtures/linearctl-describe-0.4.0.json"
         ))
         .unwrap();
         assert!(d.check_argv(&argv).is_empty());
@@ -394,6 +394,6 @@ mod tests {
     fn the_describe_check() {
         let d = |s| crate::contract::Describe::from_json(s).unwrap();
         assert!(!can_watch(&d(include_str!("../../tests/fixtures/linearctl-describe-0.1.0.json"))));
-        assert!(can_watch(&d(include_str!("../../tests/fixtures/linearctl-describe-0.3.0.json"))));
+        assert!(can_watch(&d(include_str!("../../tests/fixtures/linearctl-describe-0.4.0.json"))));
     }
 }

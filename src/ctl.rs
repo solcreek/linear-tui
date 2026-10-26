@@ -374,14 +374,14 @@ mod tests {
         assert_valid(&auth_status_argv());
     }
 
-    fn describe_0_3_0() -> Describe {
-        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.3.0.json")).unwrap()
+    fn describe_0_4_0() -> Describe {
+        Describe::from_json(include_str!("../tests/fixtures/linearctl-describe-0.4.0.json")).unwrap()
     }
 
     fn assert_valid_in_both(argv: &[String]) {
         assert_valid(argv);
-        let problems = describe_0_3_0().check_argv(argv);
-        assert!(problems.is_empty(), "0.3.0: {argv:?}: {problems:?}");
+        let problems = describe_0_4_0().check_argv(argv);
+        assert!(problems.is_empty(), "0.4.0: {argv:?}: {problems:?}");
     }
 
     #[test]
@@ -422,7 +422,7 @@ mod tests {
         let w = watch_argv(&view);
         assert_eq!(w[..5], ["watch", "--assignee", "me", "--state-type", "started"]);
         assert!(!w.contains(&"--sort".to_string()) && !w.contains(&"priority".to_string()));
-        let problems = describe_0_3_0().check_argv(&w);
+        let problems = describe_0_4_0().check_argv(&w);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(!describe().check_argv(&w).is_empty(), "0.1.0 has no watch");
         assert_eq!(watch_argv(&[]), ["watch", "--fields", ROW_FIELDS, "--json"]);
