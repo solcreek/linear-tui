@@ -594,7 +594,7 @@ Tests ship with each change, in Rust only; CI fails below 90% line coverage
 6. Live updates with `watch` and calls over `serve --stdio`. *Done.*
 7. herdr plugin: a pane and a link handler *(done)*; one pane per workspace;
    what agents can see. See [herdr plugin](#herdr-plugin).
-8. Release: per-platform binaries on npm as `linear-tui`, like linearctl's.
+8. Release: per-platform binaries on npm as `linear-tui`, like linearctl's (`@solcreek/linear-cli`; the unscoped `linearctl` on npm is someone else's, unrelated).
 
 ## What linearctl lacks (proposed)
 
