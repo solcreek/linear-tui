@@ -121,7 +121,11 @@ no length limit, and works with `serve --stdio`, which takes no stdin.
 
 Quick edits (state, priority, assignee, labels, project, assign to me) skip the
 confirm dialog: the dry run still runs, its error (if any) is shown, and `--yes`
-follows only when it changes something. Later: `u` to undo the last one.
+follows only when it changes something. `u` undoes the last write (one level):
+each write records the linearctl call that reverts it — the old values, `comment
+delete`, `issue unarchive`, or archiving a new issue — and runs it the same way.
+Before linearctl 0.6.0 a project set where there was none cannot be reverted
+(no `--project none`); steps linearctl lacks are not offered.
 
 ## Screens and keybindings
 
@@ -149,9 +153,12 @@ updated, then assignee.
 | `j` `k` / arrows, `g` `G`, `Ctrl-d` `Ctrl-u` | move |
 | `Enter` / `l` | open detail (split pane at ≥ 140 columns, full screen otherwise) |
 | `/` | filter loaded rows locally as you type; `Enter` in the box runs a server search |
-| `f` | filter panel (later) |
-| `o` | sort cycle: updated → created → priority (later) |
-| `1`…`9`, `Tab` | views (from `config.toml`: later; four built in) |
+| `f` | filter panel |
+| `o` | sort cycle: updated → created → priority, and with linearctl 0.6.0 → due date → title → status |
+| `1`…`9`, `Tab` | views (from `config.toml`, else four built in) |
+| `V` | one of Linear's saved issue views (linearctl 0.6.0: `view list`, `issue list --view`) |
+| `e` | edit the issue's fields (opens the issue first) |
+| `u` | undo the last write |
 | `s` `p` `a` `L` `P` | quick edit state / priority / assignee / labels / project of the selected issue |
 | `A` | assign to me |
 | `c` | create issue |
@@ -160,7 +167,8 @@ updated, then assignee.
 | `n` at the bottom | load the next page (`--cursor`); also automatic when scrolling past the end |
 
 **Views** are named filter sets, each the `issue list` flags it stands for. Four
-are built in; later, `~/.config/linear-tui/config.toml` will define them:
+are built in; `~/.config/linear-tui/config.toml` (`$XDG_CONFIG_HOME`) replaces
+them, and is checked against linearctl at start like any command line:
 
 ```toml
 [[view]]
@@ -177,10 +185,13 @@ started + unstarted), *Triage*, *Recently updated* (`--updated-since 7d`).
 
 **Filter panel** (`f`): one row per `issue list` flag — team, assignee, state type,
 state, labels (all of / any of / none of), project, cycle (current, next, number),
-updated since, sort. Pickers are fed by the lookup commands. The panel's footer is
-the live command line, e.g.
-`linearctl issue list --team ENG --any-label bug --without-label wontfix --sort priority`;
-`s` saves it as a view.
+priority, updated since, sort, and with linearctl 0.6.0 creator, due after, due
+before and reverse; a row shows only when linearctl has its flag, and flags with no
+row are kept as they are. Pickers are fed by the lookup commands (`cycle list`
+included); a due date can be typed. The panel's footer is the live command line,
+e.g. `linearctl issue list --team ENG --any-label bug --without-label wontfix --sort priority`.
+`ctrl-a` shows it as a temporary Filter view (watched live; `esc` returns);
+`ctrl-s` names it and appends it to config.toml as a view.
 
 Calls:
 
@@ -212,7 +223,10 @@ Calls:
 |---|---|
 | `j` `k`, `Ctrl-d` `Ctrl-u`, `g` `G` | scroll |
 | `]` `[` | next / previous issue in the list without leaving the detail |
-| `E` | description in `$EDITOR` (`e`, a full edit form: later) |
+| `e` | edit the issue's fields in the form |
+| `E` | description in `$EDITOR` |
+| `R` | reply in one of the comment threads (linearctl 0.2.0) |
+| `u` | undo the last write |
 | `s` `p` `a` `L` `P` `A` `x` | as in the list |
 | `c` | comment in `$EDITOR` |
 | `Tab` | focus the next link, sub-issue, relation or image; `Enter` follows it (later) |
@@ -267,7 +281,10 @@ and opens the new issue's detail.
   (multi-select; sends `--add-label` / `--remove-label` for the difference, so a
   label added concurrently by someone else survives).
 - `P` project, `A` assign to me, `x` archive (confirmed).
-- Later: `e`, a full edit form; only changed fields become flags.
+- `e`: the issue's fields in the create form — title, status, priority, assignee,
+  labels, project, and with linearctl 0.6.0 cycle, estimate and due date — sent as
+  one `issue update` of what changed (`--if-updated-at` where linearctl has it,
+  `none` to clear), confirmed first; undo restores each changed field.
 - `E` description: the current text in a temp file (0600) in `$EDITOR`; on save,
   `linearctl issue update <ID> --description-file PATH --dry-run --json`, a confirm
   dialog with the exact command, then `--yes`.
@@ -283,7 +300,8 @@ the next `E` opens it.
 `c` in the detail opens `$EDITOR`; on save,
 `linearctl comment create <ID> --body-file PATH --id <uuid> --dry-run --json`, a
 confirm dialog, then `--yes`. The new comment is appended from the result.
-Later: replies in a thread, with linearctl 0.2.0's `comment create --parent`.
+`R` replies in a thread (linearctl 0.2.0's `comment create --parent`): pick the
+thread when there are several, write, confirm; the reply lands under its root.
 
 ### 7. Lookups, auth and status
 
