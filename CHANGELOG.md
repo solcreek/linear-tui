@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keyed `file download` when a link has expired; files are cached on disk by
   upload path. `i` turns images off and on; `--images MODE` and
   `--cell-size WxH` override what the terminal reports.
+- Search: `Enter` in the `/` filter searches every issue's title, description
+  and comments on the server; `Esc` returns to the view. At most 20 searches a
+  minute, leaving part of Linear's 30 for agents on the same key.
 - On start, linear-tui checks `linearctl describe` for every command and flag
   it will use, and refuses to start with a clear message if one is missing.
 

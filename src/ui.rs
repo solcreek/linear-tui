@@ -152,8 +152,15 @@ fn render_header(app: &App, f: &mut Frame, area: Rect) {
             .bg(ACCENT)
             .add_modifier(Modifier::BOLD),
     )];
+    if let Some(q) = &app.search {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!("Search \"{q}\""),
+            Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        ));
+    }
     for (i, v) in app.views.iter().enumerate() {
-        let style = if i == app.view {
+        let style = if i == app.view && app.search.is_none() {
             Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
             dim()
@@ -176,15 +183,21 @@ fn render_header(app: &App, f: &mut Frame, area: Rect) {
 }
 
 fn render_footer(app: &App, f: &mut Frame, area: Rect) {
-    let line = if app.filtering || !app.filter.is_empty() {
-        let cursor = if app.filtering { "▏" } else { "" };
+    let slash = || Span::styled(" / ", Style::new().fg(ACCENT).add_modifier(Modifier::BOLD));
+    let line = if app.filtering {
         Line::from(vec![
-            Span::styled(" / ", Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)),
-            Span::raw(format!("{}{cursor}", app.filter)),
-            Span::styled("   enter keep · esc clear", dim()),
+            slash(),
+            Span::raw(format!("{}▏", app.filter)),
+            Span::styled("   enter search all issues · ↓ keep as filter · esc clear", dim()),
         ])
     } else if let Some(s) = &app.status {
         Line::from(Span::styled(format!(" {s}"), Style::new().fg(Color::Red)))
+    } else if !app.filter.is_empty() {
+        Line::from(vec![
+            slash(),
+            Span::raw(app.filter.clone()),
+            Span::styled("   esc clear", dim()),
+        ])
     } else {
         let hints = match app.focus {
             Focus::List => {
@@ -201,11 +214,13 @@ fn render_list(app: &App, f: &mut Frame, area: Rect, narrow: bool) {
     let rows = app.visible();
     if rows.is_empty() {
         let msg = if app.loading {
-            "Loading…"
-        } else if app.filter.is_empty() {
-            "No issues in this view."
+            "Loading…".to_string()
+        } else if !app.filter.is_empty() {
+            "No issues match the filter.".to_string()
+        } else if let Some(q) = &app.search {
+            format!("No issues match \"{q}\".")
         } else {
-            "No issues match the filter."
+            "No issues in this view.".to_string()
         };
         f.render_widget(Paragraph::new(Span::styled(format!(" {msg}"), dim())), area);
         return;
@@ -555,7 +570,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ("esc h", "back"),
         ("] [", "next / previous issue"),
         ("tab 1-9", "switch view"),
-        ("/", "filter the list"),
+        ("/", "filter; enter searches all"),
         ("n", "load more"),
         ("r", "refresh"),
         ("O", "open in browser"),
@@ -759,8 +774,9 @@ mod tests {
         let s = screen(&draw(&mut app, 100, 8));
         assert!(s.contains(" / z▏"));
         assert!(s.contains("No issues match the filter."));
-        press(&mut app, KeyCode::Enter);
-        assert!(screen(&draw(&mut app, 100, 8)).contains(" / z   enter keep"));
+        assert!(s.contains("enter search all issues · ↓ keep as filter"));
+        press(&mut app, KeyCode::Down);
+        assert!(screen(&draw(&mut app, 100, 8)).contains(" / z   esc clear"));
         press(&mut app, KeyCode::Esc);
         app.status = Some("rate limited".into());
         assert!(screen(&draw(&mut app, 100, 8)).contains(" rate limited"));
@@ -915,6 +931,26 @@ mod tests {
             text.iter().any(|l| l.ends_with("□ c")),
             "a box for a non-upload is not placed: {text:?}"
         );
+    }
+
+    #[test]
+    fn search_results_and_none() {
+        let mut app = app_on('1');
+        press(&mut app, KeyCode::Char('/'));
+        for c in "coupon".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        let s = screen(&draw(&mut app, 120, 10));
+        assert!(s.contains("Northwind   Search \"coupon\"  1 My issues"), "{s}");
+        assert!(s.contains("ENG-131"));
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('/'));
+        for c in "zebra".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        press(&mut app, KeyCode::Enter);
+        assert!(screen(&draw(&mut app, 120, 10)).contains("No issues match \"zebra\"."));
     }
 
     #[test]

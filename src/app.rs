@@ -13,6 +13,10 @@ use crate::model::{AuthStatus, IssueDetail, IssueRow, Page};
 /// Rows fetched per page.
 pub const PAGE: usize = 50;
 
+/// Server searches allowed a minute. Linear allows 30 per API key; the rest
+/// is left for agents using the same key.
+pub const SEARCHES_PER_MINUTE: usize = 20;
+
 /// A named set of `issue list` filter flags.
 #[derive(Debug, Clone, PartialEq)]
 pub struct View {
@@ -219,6 +223,10 @@ pub struct App {
     pub images: HashMap<String, ImageSlot>,
     /// Whether images are fetched and drawn (`i` toggles).
     pub images_on: bool,
+    /// The server search shown instead of the view, if any.
+    pub search: Option<String>,
+    /// When recent searches ran, for the rate limit.
+    searches: Vec<DateTime<Utc>>,
     /// How images are encoded for this terminal; `None` draws none.
     pub picker: Option<ratatui_image::picker::Picker>,
 }
@@ -246,6 +254,8 @@ impl App {
             images: HashMap::new(),
             images_on: true,
             picker: None,
+            search: None,
+            searches: Vec::new(),
         }
     }
 
@@ -298,10 +308,18 @@ impl App {
         self.visible().get(self.selected).copied()
     }
 
+    /// The `issue list` filters of what the list shows: the search, or the view.
+    fn list_args(&self) -> Vec<String> {
+        match &self.search {
+            Some(q) => vec!["--query".into(), q.clone()],
+            None => self.views[self.view].args.clone(),
+        }
+    }
+
     fn load_view(&mut self) -> Vec<Effect> {
         self.generation += 1;
         self.loading = true;
-        let argv = ctl::list_argv(&self.views[self.view].args, PAGE, None);
+        let argv = ctl::list_argv(&self.list_args(), PAGE, None);
         vec![Effect::Run(Request::List {
             generation: self.generation,
             argv,
@@ -313,7 +331,7 @@ impl App {
         match (&self.next_cursor, self.loading) {
             (Some(c), false) => {
                 self.loading = true;
-                let argv = ctl::list_argv(&self.views[self.view].args, PAGE, Some(c));
+                let argv = ctl::list_argv(&self.list_args(), PAGE, Some(c));
                 vec![Effect::Run(Request::List {
                     generation: self.generation,
                     argv,
@@ -325,10 +343,12 @@ impl App {
     }
 
     fn switch_view(&mut self, view: usize) -> Vec<Effect> {
-        if view >= self.views.len() || (view == self.view && !self.rows.is_empty()) {
+        let same = view == self.view && !self.rows.is_empty() && self.search.is_none();
+        if view >= self.views.len() || same {
             return Vec::new();
         }
         self.view = view;
+        self.search = None;
         self.rows.clear();
         self.selected = 0;
         self.next_cursor = None;
@@ -477,7 +497,19 @@ impl App {
                 self.filter.clear();
                 self.filtering = false;
             }
-            KeyCode::Enter => self.filtering = false,
+            KeyCode::Enter => {
+                self.filtering = false;
+                let q = self.filter.trim().to_string();
+                if !q.is_empty() {
+                    return self.start_search(q);
+                }
+            }
+            // Arrows leave the box and keep the filter.
+            KeyCode::Down | KeyCode::Up => {
+                self.filtering = false;
+                self.selected = 0;
+                return Vec::new();
+            }
             KeyCode::Backspace => {
                 self.filter.pop();
             }
@@ -488,12 +520,40 @@ impl App {
         Vec::new()
     }
 
+    /// Search every issue on the server, within the rate limit.
+    fn start_search(&mut self, q: String) -> Vec<Effect> {
+        let minute_ago = self.now - chrono::Duration::seconds(60);
+        self.searches.retain(|t| *t > minute_ago);
+        if self.searches.len() >= SEARCHES_PER_MINUTE {
+            let wait = (self.searches[0] - minute_ago).num_seconds().max(1);
+            self.status = Some(format!(
+                "{SEARCHES_PER_MINUTE} searches a minute at most: try again in {wait} s (the filter still works)"
+            ));
+            return Vec::new();
+        }
+        self.searches.push(self.now);
+        self.search = Some(q);
+        self.filter.clear();
+        self.rows.clear();
+        self.selected = 0;
+        self.next_cursor = None;
+        self.status = None;
+        self.load_view()
+    }
+
     fn list_key(&mut self, k: KeyEvent, ctrl: bool) -> Vec<Effect> {
         match k.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Esc if !self.filter.is_empty() => {
                 self.filter.clear();
                 self.selected = 0;
+            }
+            KeyCode::Esc if self.search.is_some() => {
+                self.search = None;
+                self.rows.clear();
+                self.selected = 0;
+                self.next_cursor = None;
+                return self.load_view();
             }
             KeyCode::Esc => self.quit = true,
             KeyCode::Char('j') | KeyCode::Down => return self.step(1),
@@ -772,7 +832,7 @@ mod tests {
         drive(&mut app, key(KeyCode::Backspace));
         assert_eq!(ids(&app), ["ENG-142", "ENG-143", "ENG-144"]);
         drive(&mut app, key(KeyCode::Left));
-        drive(&mut app, key(KeyCode::Enter));
+        drive(&mut app, key(KeyCode::Down));
         assert!(!app.filtering);
         assert_eq!(app.filter, "coup");
         drive(&mut app, key(KeyCode::Esc));
@@ -789,7 +849,7 @@ mod tests {
         drive(&mut app, ch('s'));
         drive(&mut app, ch('e'));
         drive(&mut app, ch('c'));
-        drive(&mut app, key(KeyCode::Enter));
+        drive(&mut app, key(KeyCode::Down));
         assert_eq!(ids(&app), ["ENG-151"], "matches a label");
     }
 
@@ -867,7 +927,7 @@ mod tests {
         assert!(matches!(&drive(&mut app, ch('O'))[0], Effect::Open(u) if u.contains("ENG-142")));
         drive(&mut app, ch('/'));
         drive(&mut app, ch('#'));
-        drive(&mut app, key(KeyCode::Enter));
+        drive(&mut app, key(KeyCode::Up));
         assert!(drive(&mut app, ch('O')).is_empty(), "nothing selected");
         assert!(drive(&mut app, key(KeyCode::Enter)).is_empty());
         assert!(drive(&mut app, ch('j')).is_empty());
@@ -1006,6 +1066,62 @@ mod tests {
         assert!(app2.update(answer(&fx[0])).is_empty());
         let fx = app2.update(ch('i'));
         assert_eq!(fx.len(), 1, "turning images on fetches them");
+    }
+
+    fn search_for(app: &mut App, q: &str) -> Vec<Effect> {
+        drive(app, ch('/'));
+        for c in q.chars() {
+            drive(app, ch(c));
+        }
+        drive(app, key(KeyCode::Enter))
+    }
+
+    #[test]
+    fn enter_in_the_filter_searches_the_server() {
+        let mut app = started();
+        let fx = search_for(&mut app, "coupon");
+        assert!(matches!(&fx[0], Effect::Run(Request::List { argv, .. })
+            if argv.windows(2).any(|w| w == ["--query", "coupon"])));
+        assert_eq!(app.search.as_deref(), Some("coupon"));
+        assert!(app.filter.is_empty(), "the local filter gives way to the search");
+        assert_eq!(ids(&app), ["ENG-142", "ENG-143", "ENG-144", "ENG-131"]);
+        // Esc goes back to the view.
+        drive(&mut app, key(KeyCode::Esc));
+        assert_eq!(app.search, None);
+        assert_eq!(ids(&app).len(), 4);
+        assert!(!app.quit);
+        // A view key also ends the search, even for the view it came from.
+        search_for(&mut app, "android");
+        let fx = drive(&mut app, ch('1'));
+        assert!(!fx.is_empty());
+        assert_eq!(app.search, None);
+        // An empty filter does not search.
+        drive(&mut app, ch('/'));
+        drive(&mut app, ch(' '));
+        assert!(drive(&mut app, key(KeyCode::Enter)).is_empty());
+    }
+
+    #[test]
+    fn searches_are_rate_limited() {
+        let mut app = started();
+        for i in 0..SEARCHES_PER_MINUTE {
+            app.now += chrono::Duration::seconds(1);
+            assert!(!search_for(&mut app, &format!("q{i}")).is_empty(), "search {i}");
+        }
+        app.now += chrono::Duration::seconds(1);
+        assert!(search_for(&mut app, "more").is_empty());
+        assert!(
+            app.status.as_deref().unwrap().contains("try again in 40 s"),
+            "{:?}",
+            app.status
+        );
+        assert_eq!(app.filter, "more", "the text stays as a local filter");
+        app.now += chrono::Duration::seconds(40);
+        drive(&mut app, key(KeyCode::Esc));
+        assert!(
+            !search_for(&mut app, "more").is_empty(),
+            "the oldest search has aged out"
+        );
     }
 
     #[test]

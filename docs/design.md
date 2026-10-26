@@ -226,11 +226,11 @@ Comments are threaded by `parent`, oldest first, replies indented under their ro
 Two levels, so typing never spends the 30-searches-a-minute budget:
 
 1. `/` filters the rows already loaded, locally, as you type (title, identifier,
-   labels, assignee). Free.
+   labels, assignee). Free. `↓` or `↑` leaves the box and keeps the filter.
 2. `Enter` in the box runs a server-side full-text search (titles, descriptions,
-   comments): `linearctl issue list --query <TEXT> --limit 50 --json`, with the
-   current view's filters added when "within view" is toggled (`Ctrl-v`). Results
+   comments): `linearctl issue list --query <TEXT> --limit 50 --json`. Results
    open as a temporary *Search* view; `Esc` returns to the previous one.
+   Later: a "within view" toggle (`Ctrl-v`) adding the current view's filters.
 
 A client-side token bucket allows 20 searches a minute, leaving 10 for agents on
 the same key; above it the box says when the next search is allowed.
