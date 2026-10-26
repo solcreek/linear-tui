@@ -193,6 +193,65 @@ pub fn run(argv: &[String], now: DateTime<Utc>) -> Output {
     result.unwrap_or_else(|e| Output::usage(&e))
 }
 
+/// The environment variable that makes fake-linearctl misbehave, for tests.
+pub const FAULT_ENV: &str = "FAKE_LINEARCTL_FAULT";
+
+/// Run with an injected fault (the value of [`FAULT_ENV`]), else normally:
+///
+/// - `exit:N`: fail with exit code N and linearctl's error document
+///   (`retryAt` included for 6);
+/// - `sleep:MS`: wait, then answer;
+/// - `garbage`: exit 0 with stdout that is not JSON;
+/// - `crash`: exit 101 with nothing on stdout;
+/// - `busy-once:PATH`: exit 4 the first time (creating PATH), then answer.
+pub fn run_with_fault(argv: &[String], now: DateTime<Utc>, fault: Option<&str>) -> Output {
+    let Some(fault) = fault.filter(|f| !f.is_empty()) else {
+        return run(argv, now);
+    };
+    let (kind, arg) = fault.split_once(':').unwrap_or((fault, ""));
+    match kind {
+        "exit" => match arg.parse::<i32>() {
+            Ok(6) => Output {
+                code: 6,
+                stdout: format!(
+                    "{}\n",
+                    json!({"error": "rate limited by Linear", "usage": false, "retryAt": "2026-10-26T13:00:00Z"})
+                ),
+                stderr: "linearctl: rate limited by Linear\n".into(),
+            },
+            Ok(code) => Output::error(code, &format!("injected failure {code}"), code == 2),
+            Err(_) => Output::usage(&format!("{FAULT_ENV}: bad exit code: {arg}")),
+        },
+        "sleep" => match arg.parse() {
+            Ok(ms) => {
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+                run(argv, now)
+            }
+            Err(_) => Output::usage(&format!("{FAULT_ENV}: bad sleep: {arg}")),
+        },
+        "garbage" => Output {
+            code: 0,
+            stdout: "this is not json\n".into(),
+            stderr: String::new(),
+        },
+        "crash" => Output {
+            code: 101,
+            stdout: String::new(),
+            stderr: "thread 'main' panicked\n".into(),
+        },
+        "busy-once" => {
+            let marker = std::path::Path::new(arg);
+            if marker.exists() {
+                run(argv, now)
+            } else {
+                let _ = std::fs::write(marker, "");
+                Output::error(4, "the config lock is held; nothing changed", false)
+            }
+        }
+        _ => Output::usage(&format!("{FAULT_ENV}: unknown fault: {fault}")),
+    }
+}
+
 fn list(args: &Args, known: &[&str], items: impl FnOnce() -> Vec<Value>) -> Result<Output, String> {
     let mut all = vec!["limit", "cursor", "fields"];
     all.extend_from_slice(known);
@@ -1080,6 +1139,29 @@ mod tests {
         let parts: Vec<usize> = u.split('-').map(str::len).collect();
         assert_eq!(parts, [8, 4, 4, 4, 12]);
         assert_eq!(&u[14..15], "4");
+    }
+
+    #[test]
+    fn faults() {
+        let argv = vec!["auth".to_string(), "status".to_string()];
+        let f = |spec: &str| run_with_fault(&argv, anchor(), Some(spec));
+        assert_eq!(run_with_fault(&argv, anchor(), None).code, 0);
+        assert_eq!(run_with_fault(&argv, anchor(), Some("")).code, 0);
+        assert_eq!(f("exit:5").code, 5);
+        assert!(f("exit:2").stdout.contains("\"usage\":true"));
+        assert!(f("exit:6").stdout.contains("retryAt"));
+        assert_eq!(f("exit:x").code, 2);
+        assert_eq!(f("sleep:1").code, 0);
+        assert_eq!(f("sleep:x").code, 2);
+        assert_eq!(f("garbage").stdout, "this is not json\n");
+        assert_eq!(f("crash").code, 101);
+        assert_eq!(f("nonsense").code, 2);
+        let dir = std::env::temp_dir().join(format!("fake-busy-{}", std::process::id()));
+        let _ = std::fs::remove_file(&dir);
+        let spec = format!("busy-once:{}", dir.display());
+        assert_eq!(f(&spec).code, 4);
+        assert_eq!(f(&spec).code, 0);
+        std::fs::remove_file(&dir).unwrap();
     }
 
     #[test]

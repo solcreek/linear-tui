@@ -65,7 +65,11 @@ impl Describe {
         let Some(argv) = shlex::split(text) else {
             return vec!["cannot parse: unbalanced quotes".into()];
         };
-        let argv = &argv[1.min(argv.len())..]; // drop "linearctl"
+        self.check_argv(&argv[1.min(argv.len())..]) // drop "linearctl"
+    }
+
+    /// Problems with an argv as the TUI passes it (no program name).
+    pub fn check_argv(&self, argv: &[String]) -> Vec<String> {
         let mut path: Vec<String> = Vec::new();
         let mut i = 0;
         while i < argv.len() {
