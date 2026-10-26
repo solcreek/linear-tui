@@ -328,7 +328,7 @@ pub(crate) mod tests {
     /// linearctl 0.4.0: the flags of today, before --project none worked.
     pub(crate) fn old_0_4_0() -> crate::contract::Describe {
         let mut v: serde_json::Value =
-            serde_json::from_str(include_str!("../../tests/fixtures/linearctl-describe-0.6.0.json")).unwrap();
+            serde_json::from_str(include_str!("../../tests/fixtures/linearctl-describe-0.7.0.json")).unwrap();
         v["version"] = "0.4.0".into();
         crate::contract::Describe::from_json(&v.to_string()).unwrap()
     }
@@ -494,7 +494,7 @@ pub(crate) mod tests {
         assert!(!w.app.can_clear_project());
         w.ctrl('s');
         assert_eq!(w.app.status.as_deref(), Some("Clearing a project needs linearctl 0.6.0 or later."));
-        w.app.describe = Some(d(include_str!("../../tests/fixtures/linearctl-describe-0.6.0.json")));
+        w.app.describe = Some(d(include_str!("../../tests/fixtures/linearctl-describe-0.7.0.json")));
         assert!(w.app.can_clear_project());
         w.ctrl('s');
         assert_eq!(w.confirm_lines(), ["  Project: none"]);

@@ -766,7 +766,7 @@ mod tests {
     fn a_saved_view_is_not_watched() {
         let mut app = started();
         app.can_watch = true;
-        let now = include_str!("../../tests/fixtures/linearctl-describe-0.6.0.json");
+        let now = include_str!("../../tests/fixtures/linearctl-describe-0.7.0.json");
         app.describe = Some(crate::contract::Describe::from_json(now).unwrap());
         key(&mut app, KeyCode::Char('V'));
         let fx = key(&mut app, KeyCode::Enter);

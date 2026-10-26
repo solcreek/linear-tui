@@ -205,7 +205,7 @@ mod tests {
         assert_eq!((a[1]["id"].clone(), a[1]["exit"].clone()), (json!("two"), json!(1)));
         assert!(a[1]["result"]["error"].as_str().unwrap().starts_with("not found"));
         assert_eq!(a[2]["result"], Value::Null, "text output");
-        assert!(a[2]["stdout"].as_str().unwrap().starts_with("linearctl 0.6.0"));
+        assert!(a[2]["stdout"].as_str().unwrap().starts_with("linearctl 0.7.0"));
         for (i, needle) in
             [(3, "run watch on its own"), (4, "not -"), (5, "argv must be"), (6, "not a request")]
         {
