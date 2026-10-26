@@ -18,6 +18,11 @@ px=28
 size=160x44
 # Short: herdr's socket lives under it, and a socket path has ~100 bytes.
 home=$(mktemp -d /tmp/lt-herdr.XXXX)
+# Run from a herdr pane, herdr would follow an inherited socket or session to
+# your server, even with HOME changed: drop them, and keep XDG paths inside.
+for v in $(env | sed -n 's/^\(HERDR_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+export XDG_CONFIG_HOME=$home/.config XDG_STATE_HOME=$home/.local/state \
+	XDG_DATA_HOME=$home/.local/share XDG_CACHE_HOME=$home/.cache
 tmux="tmux -L lt-herdr"
 log=$home/pty.log
 trap 'HOME=$home herdr server stop >/dev/null 2>&1 || true; $tmux kill-server 2>/dev/null || true; rm -rf "$home"' EXIT
