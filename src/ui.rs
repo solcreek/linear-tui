@@ -3,13 +3,15 @@
 
 use chrono::{DateTime, Utc};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect, Size};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState};
+use ratatui_image::picker::Picker;
+use ratatui_image::{FilterType, FontSize, Resize, StatefulImage};
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, ImageSlot};
 use crate::markdown;
 use crate::model::{IssueDetail, IssueRow, Label, State, User};
 
@@ -253,10 +255,75 @@ fn list_row(r: &IssueRow, now: DateTime<Utc>, wide: bool) -> Row<'static> {
     Row::new(cells)
 }
 
-/// The detail as lines for a pane `width` wide.
-pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>) -> Vec<Line<'static>> {
+/// How an image in the text is shown.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImageView {
+    /// Drawn in a box of this many cells.
+    Box { cols: u16, rows: u16 },
+    /// Not drawn: a note after its name says why.
+    Note(String),
+}
+
+/// Where a drawn image goes in the detail's lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placement {
+    pub line: usize,
+    pub x: u16,
+    pub cols: u16,
+    pub rows: u16,
+    /// The upload path, the key into `App::images`.
+    pub path: String,
+}
+
+/// The detail laid out: its lines, and the images to draw over them.
+#[derive(Debug, Default)]
+pub struct DetailLayout {
+    pub lines: Vec<Line<'static>>,
+    pub images: Vec<Placement>,
+}
+
+/// Decides how each image is shown, given its URL and the columns free.
+pub type ImageViewer<'a> = dyn Fn(&str, u16) -> ImageView + 'a;
+
+/// Markdown into `out`, indented by `pad`, reserving rows for images.
+fn push_markdown(out: &mut DetailLayout, md: &str, width: u16, pad: u16, view: &ImageViewer) {
+    let r = markdown::render(md, width);
+    for (k, line) in r.lines.into_iter().enumerate() {
+        let mut spans = vec![Span::raw(" ".repeat(usize::from(pad)))];
+        let image = r.images.iter().find(|im| im.line == k);
+        let prefix_w: usize = line.spans.iter().rev().skip(1).map(|s| s.content.width()).sum();
+        spans.extend(line.spans);
+        let Some(image) = image else {
+            out.lines.push(Line::from(spans));
+            continue;
+        };
+        let free = width.saturating_sub(u16::try_from(prefix_w).unwrap_or(width));
+        match (view(&image.url, free), crate::images::upload_path(&image.url)) {
+            (ImageView::Box { cols, rows }, Some(path)) => {
+                out.images.push(Placement {
+                    line: out.lines.len(),
+                    x: pad + u16::try_from(prefix_w).unwrap_or(0),
+                    cols,
+                    rows,
+                    path: path.to_string(),
+                });
+                out.lines.push(Line::from(spans));
+                out.lines.extend((1..rows).map(|_| Line::raw("")));
+            }
+            (ImageView::Note(note), _) => {
+                spans.push(Span::styled(format!("  {note}"), dim()));
+                out.lines.push(Line::from(spans));
+            }
+            (ImageView::Box { .. }, None) => out.lines.push(Line::from(spans)),
+        }
+    }
+}
+
+/// The detail laid out for a pane `width` wide.
+pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>, view: &ImageViewer) -> DetailLayout {
     let w = width.saturating_sub(2).max(10);
-    let mut out: Vec<Line<'static>> = Vec::new();
+    let mut layout = DetailLayout::default();
+    let out = &mut layout.lines;
     let row = &i.row;
     out.push(Line::from(vec![
         Span::styled(row.identifier.clone(), dim()),
@@ -321,9 +388,10 @@ pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>) -> Vec<Line
     }
     out.push(Line::from(Span::styled("─".repeat(usize::from(w)), dim())));
     match i.description.as_deref().filter(|d| !d.trim().is_empty()) {
-        Some(d) => out.extend(markdown::render(d, w).lines),
+        Some(d) => push_markdown(&mut layout, d, w, 0, view),
         None => out.push(Line::from(Span::styled("No description.", dim()))),
     }
+    let out = &mut layout.lines;
     let section = |title: String| {
         Line::from(Span::styled(
             title,
@@ -379,15 +447,35 @@ pub fn detail_lines(i: &IssueDetail, width: u16, now: DateTime<Utc>) -> Vec<Line
             Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         ));
         head.push(Span::styled(format!(" · {}", ago(&c.created_at, now)), dim()));
-        out.push(Line::from(head));
+        layout.lines.push(Line::from(head));
         let pad = if reply { 6 } else { 2 };
-        for l in markdown::render(&c.body, w.saturating_sub(pad)).lines {
-            let mut spans = vec![Span::raw(" ".repeat(usize::from(pad)))];
-            spans.extend(l.spans);
-            out.push(Line::from(spans));
+        push_markdown(&mut layout, &c.body, w.saturating_sub(pad), pad, view);
+    }
+    layout
+}
+
+/// How images look given what the app has loaded: drawn at their natural
+/// size or smaller, at most `max_rows` tall.
+fn viewer<'a>(app: &'a App, font: FontSize, max_rows: u16) -> impl Fn(&str, u16) -> ImageView + 'a {
+    move |url, free| {
+        let Some(path) = crate::images::upload_path(url) else {
+            return ImageView::Note("external image, not loaded".into());
+        };
+        if !app.images_on {
+            return ImageView::Note("images off (i)".into());
+        }
+        match app.images.get(path) {
+            None | Some(ImageSlot::Loading) => ImageView::Note("loading…".into()),
+            Some(ImageSlot::Failed(e)) => ImageView::Note(format!("not shown: {e}")),
+            Some(ImageSlot::Ready(pic)) => {
+                let fit = Resize::Fit(None).size_for(&pic.image, font, Size::new(free, max_rows));
+                let natural = Resize::natural_size(&pic.image, font);
+                let cols = fit.width.min(natural.width).max(1);
+                let rows = fit.height.min(natural.height).max(1);
+                ImageView::Box { cols, rows }
+            }
         }
     }
-    out
 }
 
 fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
@@ -403,21 +491,59 @@ fn render_detail(app: &mut App, f: &mut Frame, area: Rect, beside: bool) {
         width: inner.width.saturating_sub(1),
         ..inner
     };
-    let now = app.now;
-    let Some(d) = app.detail.as_mut() else { return };
-    let lines = match (&d.issue, &d.error) {
-        (_, Some(e)) => vec![Line::from(Span::styled(
-            format!("{}: {e}", d.id),
-            Style::new().fg(Color::Red),
-        ))],
-        (Some(i), None) => detail_lines(i, inner.width, now),
-        (None, None) => vec![Line::from(Span::styled(format!("Loading {}…", d.id), dim()))],
+    let font = app
+        .picker
+        .as_ref()
+        .map_or(FontSize::new(10, 20), Picker::font_size);
+    let max_rows = (inner.height * 3 / 5).clamp(1, 30);
+    let Some(d) = app.detail.as_ref() else { return };
+    let layout = match (&d.issue, &d.error) {
+        (_, Some(e)) => DetailLayout {
+            lines: vec![Line::from(Span::styled(
+                format!("{}: {e}", d.id),
+                Style::new().fg(Color::Red),
+            ))],
+            images: Vec::new(),
+        },
+        (Some(i), None) => detail_lines(i, inner.width, app.now, &viewer(app, font, max_rows)),
+        (None, None) => DetailLayout {
+            lines: vec![Line::from(Span::styled(format!("Loading {}…", d.id), dim()))],
+            images: Vec::new(),
+        },
     };
-    let max = u16::try_from(lines.len())
+    let max = u16::try_from(layout.lines.len())
         .unwrap_or(u16::MAX)
         .saturating_sub(inner.height);
+    let Some(d) = app.detail.as_mut() else { return };
     d.scroll = d.scroll.min(max);
-    f.render_widget(Paragraph::new(lines).scroll((d.scroll, 0)), inner);
+    let scroll = usize::from(d.scroll);
+    f.render_widget(Paragraph::new(layout.lines).scroll((d.scroll, 0)), inner);
+    // Draw each image whose whole box is on screen; a partly visible one
+    // keeps its name line.
+    let Some(picker) = app.picker.as_ref() else { return };
+    for p in layout.images {
+        let top = p.line.checked_sub(scroll);
+        let Some(top) = top.filter(|t| t + usize::from(p.rows) <= usize::from(inner.height)) else {
+            continue;
+        };
+        let Some(ImageSlot::Ready(pic)) = app.images.get_mut(&p.path) else {
+            continue;
+        };
+        let rect = Rect {
+            x: inner.x + p.x,
+            y: inner.y + u16::try_from(top).unwrap_or(0),
+            width: p.cols.min(inner.width.saturating_sub(p.x)),
+            height: p.rows,
+        };
+        let proto = pic
+            .proto
+            .get_or_insert_with(|| picker.new_resize_protocol(pic.image.clone()));
+        f.render_stateful_widget(
+            StatefulImage::default().resize(Resize::Fit(Some(FilterType::Triangle))),
+            rect,
+            proto,
+        );
+    }
 }
 
 fn render_help(f: &mut Frame, area: Rect) {
@@ -604,7 +730,8 @@ mod tests {
     fn a_bare_issue() {
         let mut i = IssueDetail::default();
         i.row.identifier = "ENG-1".into();
-        let text: Vec<String> = detail_lines(&i, 60, now())
+        let text: Vec<String> = detail_lines(&i, 60, now(), &|_, _| ImageView::Note(String::new()))
+            .lines
             .iter()
             .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
             .collect();
@@ -649,6 +776,145 @@ mod tests {
         empty.next_cursor = Some("x".into());
         empty.loading = false;
         assert!(screen(&draw(&mut empty, 80, 5)).contains("0+ issues"));
+    }
+
+    fn demo_image() -> Box<image::DynamicImage> {
+        use crate::images::Source;
+        let bytes = crate::images::Demo
+            .fetch("https://uploads.linear.app/demo/checkout-error.png")
+            .unwrap();
+        Box::new(crate::images::decode(&bytes).unwrap())
+    }
+
+    const DEMO_URL: &str = "https://uploads.linear.app/demo/checkout-error.png?signature=demo-300";
+
+    fn detail_with_image(picker: bool) -> App {
+        let mut app = app_on('1');
+        if picker {
+            app.picker = Some(ratatui_image::picker::Picker::halfblocks());
+        }
+        let fx = app.update(Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        feed(&mut app, fx);
+        app
+    }
+
+    #[test]
+    fn images_show_their_state_until_drawn() {
+        let mut app = detail_with_image(true);
+        let s = screen(&draw(&mut app, 160, 60));
+        assert!(s.contains("□ checkout-error.png  loading…"), "{s}");
+        app.update(Msg::Image {
+            url: DEMO_URL.into(),
+            result: Err("HTTP 500".into()),
+        });
+        assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  not shown: HTTP 500"));
+        app.update(Msg::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)));
+        assert!(screen(&draw(&mut app, 160, 60)).contains("□ checkout-error.png  images off (i)"));
+    }
+
+    #[test]
+    fn a_loaded_image_is_drawn_in_its_box() {
+        let mut app = detail_with_image(true);
+        app.update(Msg::Image {
+            url: DEMO_URL.into(),
+            result: Ok(demo_image()),
+        });
+        let mut t = Terminal::new(TestBackend::new(160, 40)).unwrap();
+        // Rows of the detail pane mostly painted with a background colour.
+        let mut painted = |app: &mut App| -> Vec<u16> {
+            t.draw(|f| render(app, f)).unwrap();
+            let buf = t.backend().buffer();
+            (0..40)
+                .filter(|&y| (73..160).filter(|&x| buf[(x, y)].bg != Color::Reset).count() > 40)
+                .collect()
+        };
+        app.detail.as_mut().unwrap().scroll = 10;
+        let rows = painted(&mut app);
+        // 588x376 px at 10x20 px a cell: 59 x 19 cells, in one block.
+        assert_eq!(rows.len(), 19, "{rows:?}");
+        assert!(rows.windows(2).all(|w| w[1] == w[0] + 1));
+        // One more line down and the top of the box is off screen: not drawn.
+        let top_line = rows[0] - 1 + 10;
+        app.detail.as_mut().unwrap().scroll = top_line + 1;
+        assert!(
+            painted(&mut app).is_empty(),
+            "partly visible images are not drawn"
+        );
+        app.detail.as_mut().unwrap().scroll = top_line;
+        assert_eq!(painted(&mut app).len(), 19);
+    }
+
+    #[test]
+    fn without_a_picker_rows_are_reserved_but_nothing_drawn() {
+        let mut app = detail_with_image(false);
+        app.update(Msg::Image {
+            url: DEMO_URL.into(),
+            result: Ok(demo_image()),
+        });
+        let s = screen(&draw(&mut app, 160, 60));
+        assert!(s.contains("□ checkout-error.png"));
+        assert!(!s.contains('▀'));
+    }
+
+    #[test]
+    fn image_views() {
+        let mut app = detail_with_image(false);
+        app.update(Msg::Image {
+            url: DEMO_URL.into(),
+            result: Ok(demo_image()),
+        });
+        let font = FontSize::new(10, 20);
+        let v = viewer(&app, font, 30);
+        assert_eq!(
+            v(DEMO_URL, 100),
+            ImageView::Box { cols: 59, rows: 19 },
+            "natural size"
+        );
+        assert_eq!(
+            v(DEMO_URL, 30),
+            ImageView::Box { cols: 30, rows: 10 },
+            "shrunk to the width"
+        );
+        let short = viewer(&app, font, 5);
+        assert_eq!(
+            short(DEMO_URL, 100),
+            ImageView::Box { cols: 16, rows: 5 },
+            "shrunk to the height"
+        );
+        assert_eq!(
+            v("https://example.com/x.png", 100),
+            ImageView::Note("external image, not loaded".into())
+        );
+        assert_eq!(
+            v("https://uploads.linear.app/other", 100),
+            ImageView::Note("loading…".into())
+        );
+    }
+
+    #[test]
+    fn images_in_lists_and_comments_are_placed_after_their_indent() {
+        let i = IssueDetail {
+            description: Some("- ![a](https://uploads.linear.app/p/a)".into()),
+            comments: vec![crate::model::Comment {
+                id: "c".into(),
+                body: "![b](https://uploads.linear.app/p/b)\n\n![c](https://elsewhere.example/c)".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let layout = detail_lines(&i, 80, now(), &|_, _| ImageView::Box { cols: 4, rows: 3 });
+        let xs: Vec<(u16, &str)> = layout.images.iter().map(|p| (p.x, p.path.as_str())).collect();
+        assert_eq!(xs, [(2, "/p/a"), (2, "/p/b")]);
+        assert!(layout.images.iter().all(|p| p.rows == 3 && p.cols == 4));
+        let text: Vec<String> = layout
+            .lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        assert!(
+            text.iter().any(|l| l.ends_with("□ c")),
+            "a box for a non-upload is not placed: {text:?}"
+        );
     }
 
     #[test]

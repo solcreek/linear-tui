@@ -128,6 +128,31 @@ pub enum Effect {
     Run(Request),
     /// Open a URL in the browser.
     Open(String),
+    /// Fetch and decode an image (an upload URL); answered by `Msg::Image`.
+    FetchImage(String),
+}
+
+/// An image in the open issue, by upload path.
+pub enum ImageSlot {
+    Loading,
+    Ready(Box<Pic>),
+    Failed(String),
+}
+
+/// A decoded image, and its terminal encoding once the UI has made one.
+pub struct Pic {
+    pub image: image::DynamicImage,
+    pub proto: Option<ratatui_image::protocol::StatefulProtocol>,
+}
+
+impl std::fmt::Debug for ImageSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Loading => f.write_str("Loading"),
+            Self::Ready(p) => write!(f, "Ready({}x{})", p.image.width(), p.image.height()),
+            Self::Failed(e) => write!(f, "Failed({e})"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -143,6 +168,11 @@ pub enum Msg {
         result: Result<Box<IssueDetail>, Failure>,
     },
     Authed(Result<AuthStatus, Failure>),
+    /// An image fetched for `url`.
+    Image {
+        url: String,
+        result: Result<Box<image::DynamicImage>, String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +215,12 @@ pub struct App {
     pub quit: bool,
     /// The time relative dates are shown against.
     pub now: DateTime<Utc>,
+    /// Images of the issues seen, by upload path.
+    pub images: HashMap<String, ImageSlot>,
+    /// Whether images are fetched and drawn (`i` toggles).
+    pub images_on: bool,
+    /// How images are encoded for this terminal; `None` draws none.
+    pub picker: Option<ratatui_image::picker::Picker>,
 }
 
 impl App {
@@ -207,7 +243,37 @@ impl App {
             help: false,
             quit: false,
             now,
+            images: HashMap::new(),
+            images_on: true,
+            picker: None,
         }
+    }
+
+    /// Fetch the open issue's uploaded images not yet asked for. Images on
+    /// other hosts are never fetched: a tracking pixel in someone's text
+    /// should not learn who reads it.
+    fn image_effects(&mut self) -> Vec<Effect> {
+        let Some(issue) = self.detail.as_ref().and_then(|d| d.issue.as_ref()) else {
+            return Vec::new();
+        };
+        if !self.images_on {
+            return Vec::new();
+        }
+        let texts = issue
+            .description
+            .iter()
+            .chain(issue.comments.iter().map(|c| &c.body));
+        let mut fx = Vec::new();
+        for (url, _) in texts.flat_map(|t| crate::markdown::image_urls(t)) {
+            let Some(path) = crate::images::upload_path(&url) else {
+                continue;
+            };
+            if !self.images.contains_key(path) {
+                self.images.insert(path.to_string(), ImageSlot::Loading);
+                fx.push(Effect::FetchImage(url));
+            }
+        }
+        fx
     }
 
     /// What to run at start: who we are, and the first view.
@@ -292,7 +358,7 @@ impl App {
             scroll: 0,
         });
         if cached {
-            return Vec::new();
+            return self.image_effects();
         }
         vec![Effect::Run(Request::Show {
             argv: ctl::show_argv(&id),
@@ -347,6 +413,7 @@ impl App {
                         if let Some(d) = current {
                             d.issue = Some(issue);
                             d.error = None;
+                            return self.image_effects();
                         }
                     }
                     Err(f) => {
@@ -354,6 +421,19 @@ impl App {
                             d.error = Some(f.message());
                         }
                     }
+                }
+                Vec::new()
+            }
+            Msg::Image { url, result } => {
+                if let Some(path) = crate::images::upload_path(&url) {
+                    let slot = match result {
+                        Ok(image) => ImageSlot::Ready(Box::new(Pic {
+                            image: *image,
+                            proto: None,
+                        })),
+                        Err(e) => ImageSlot::Failed(e),
+                    };
+                    self.images.insert(path.to_string(), slot);
                 }
                 Vec::new()
             }
@@ -481,6 +561,10 @@ impl App {
                     argv: ctl::show_argv(&id),
                     id,
                 })];
+            }
+            KeyCode::Char('i') => {
+                self.images_on = !self.images_on;
+                return self.image_effects();
             }
             KeyCode::Char('O') => {
                 if let Some(i) = &d.issue {
@@ -713,7 +797,8 @@ mod tests {
     fn opening_an_issue_fetches_it_once() {
         let mut app = started();
         let fx = drive(&mut app, key(KeyCode::Enter));
-        assert_eq!(fx.len(), 1);
+        assert_eq!(fx.iter().filter(|f| matches!(f, Effect::Run(_))).count(), 1);
+        assert!(fx.iter().any(|f| matches!(f, Effect::FetchImage(_))));
         assert_eq!(app.focus, Focus::Detail);
         let d = app.detail.as_ref().unwrap();
         assert_eq!(d.id, "ENG-142");
@@ -856,6 +941,71 @@ mod tests {
         let m = missing(&old, &default_views());
         assert!(m.iter().any(|p| p.contains("--fields")), "{m:?}");
         assert!(m.iter().any(|p| p.contains("unknown command: auth")), "{m:?}");
+    }
+
+    #[test]
+    fn images_are_fetched_once_per_upload() {
+        let mut app = started();
+        let fx = app.update(key(KeyCode::Enter));
+        let shown = answer(&fx[0]);
+        let fx = app.update(shown);
+        assert_eq!(
+            fx,
+            [Effect::FetchImage(
+                "https://uploads.linear.app/demo/checkout-error.png?signature=demo-300".into()
+            )]
+        );
+        assert!(matches!(
+            app.images.get("/demo/checkout-error.png"),
+            Some(ImageSlot::Loading)
+        ));
+        // Back and in again: cached, and the image is already asked for.
+        drive(&mut app, key(KeyCode::Esc));
+        drive(&mut app, ch('j'));
+        drive(&mut app, key(KeyCode::Enter));
+        drive(&mut app, key(KeyCode::Esc));
+        drive(&mut app, ch('k'));
+        assert!(drive(&mut app, key(KeyCode::Enter)).is_empty());
+        app.update(Msg::Image {
+            url: "https://uploads.linear.app/demo/checkout-error.png?x".into(),
+            result: Err("boom".into()),
+        });
+        assert_eq!(
+            format!("{:?}", app.images["/demo/checkout-error.png"]),
+            "Failed(boom)"
+        );
+        app.update(Msg::Image {
+            url: "https://example.com/not-an-upload".into(),
+            result: Err("x".into()),
+        });
+        assert_eq!(app.images.len(), 1);
+        let img = Box::new(image::DynamicImage::new_rgb8(4, 2));
+        app.update(Msg::Image {
+            url: "https://uploads.linear.app/demo/checkout-error.png".into(),
+            result: Ok(img),
+        });
+        assert_eq!(
+            format!("{:?}", app.images["/demo/checkout-error.png"]),
+            "Ready(4x2)"
+        );
+        assert_eq!(format!("{:?}", ImageSlot::Loading), "Loading");
+    }
+
+    #[test]
+    fn images_can_be_turned_off_and_on() {
+        let mut app = started();
+        app.update(key(KeyCode::Enter));
+        app.update(ch('i'));
+        assert!(!app.images_on);
+        let fx = app.update(key(KeyCode::Enter));
+        assert!(fx.is_empty(), "nothing to do: already open");
+        // The issue arrives while images are off: nothing fetched.
+        let mut app2 = started();
+        let fx = app2.update(key(KeyCode::Enter));
+        app2.images_on = false;
+        assert!(app2.update(answer(&fx[0])).is_empty());
+        let fx = app2.update(ch('i'));
+        assert_eq!(fx.len(), 1, "turning images on fetches them");
     }
 
     #[test]

@@ -57,6 +57,11 @@ impl Describe {
         Self::from_json(&String::from_utf8_lossy(&out.stdout))
     }
 
+    /// Whether linearctl takes `--name` before any command (e.g. `--demo`).
+    pub fn has_global_flag(&self, name: &str) -> bool {
+        self.global_flags.contains(name)
+    }
+
     /// Problems with one command line; empty means it is valid.
     ///
     /// Positional words are not checked. Synopsis brackets (`[--team KEY]`)
@@ -392,6 +397,12 @@ mod tests {
     #[test]
     fn reports_line_numbers() {
         assert!(problems("\n\n`linearctl issue list --nope`").1[0].starts_with("line 3:"));
+    }
+
+    #[test]
+    fn global_flags() {
+        assert!(describe().has_global_flag("timeout"));
+        assert!(!describe().has_global_flag("demo"));
     }
 
     #[test]

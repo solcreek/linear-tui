@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list on wide terminals (Markdown description, sub-issues, relations,
   attachments, threaded comments). `--demo` browses a fictional workspace
   with no Linear account.
+- Images in issue descriptions and comments, drawn inline with the kitty,
+  Sixel or iTerm2 protocol, or with half blocks elsewhere. Only uploads on
+  uploads.linear.app are fetched, from their signed URLs, with linearctl's
+  keyed `file download` when a link has expired; files are cached on disk by
+  upload path. `i` turns images off and on; `--images MODE` and
+  `--cell-size WxH` override what the terminal reports.
 - On start, linear-tui checks `linearctl describe` for every command and flag
   it will use, and refuses to start with a clear message if one is missing.
 

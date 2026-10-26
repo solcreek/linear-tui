@@ -28,6 +28,12 @@ fn unknown_arguments_are_usage_errors() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).starts_with("linear-tui: unknown argument: --bogus"));
     assert_eq!(tui(&["--linearctl"]).status.code(), Some(2));
+    assert_eq!(tui(&["--images", "jpeg"]).status.code(), Some(2));
+    assert_eq!(tui(&["--images"]).status.code(), Some(2));
+    for bad in ["10", "0x20", "ax20", "10x"] {
+        assert_eq!(tui(&["--cell-size", bad]).status.code(), Some(2), "{bad}");
+    }
+    assert_eq!(tui(&["--cell-size"]).status.code(), Some(2));
 }
 
 #[test]
