@@ -3,5 +3,6 @@
 pub mod contract;
 pub mod ctl;
 pub mod fake;
+pub mod markdown;
 pub mod model;
 pub mod sanitize;
