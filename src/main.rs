@@ -13,7 +13,7 @@ use linear_tui::contract::Describe;
 use linear_tui::ctl::{Exec, Runner, Serve, WatchLine, Watcher};
 use linear_tui::images::{self, DiskCache, Loader};
 use linear_tui::ui;
-use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
 const USAGE: &str = "\
 linear-tui: a terminal UI for Linear, on top of linearctl
@@ -234,6 +234,14 @@ impl Effects {
     }
 }
 
+/// Whether the queried picker's cell size is the terminal's, not
+/// ratatui-image's default: the terminal answered the cell-size query, or its
+/// window size has pixels (which ratatui-image falls back to).
+fn knows_cell_size(picker: &Picker) -> bool {
+    picker.capabilities().iter().any(|c| matches!(c, Capability::CellSize(Some(_))))
+        || crossterm::terminal::window_size().is_ok_and(|w| w.width > 0 && w.height > 0)
+}
+
 fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
     // Ask the terminal for its graphics support and cell size, unless told.
     #[allow(deprecated)] // from_fontsize is the way to skip the query
@@ -251,8 +259,12 @@ fn picker(mode: Images, cell: Option<(u16, u16)>) -> Option<Picker> {
             };
             Some(match found {
                 Some(mut picker) => {
+                    // Only at a cell size we know: herdr's plugin panes answer
+                    // neither query and have no pixels in their window size,
+                    // and kitty images at the default 10x20 tear in herdr.
                     if picker.protocol_type() == ProtocolType::Halfblocks
                         && images::herdr_draws_kitty(|k| std::env::var(k).ok())
+                        && (cell.is_some() || knows_cell_size(&picker))
                     {
                         picker.set_protocol_type(ProtocolType::Kitty);
                     }

@@ -526,10 +526,15 @@ Install: `herdr plugin install solcreek/linear-tui/herdr-plugin`, or
   open it as an overlay over the focused pane, so `esc`/`q` returns to it.
   `open-split` opens it beside the pane instead, `popup` in pane `popup`, and
   `demo` on the fictional workspace (`LINEAR_TUI_DEMO`).
-- Images: herdr answers the graphics query itself. In a split it says kitty;
-  in an overlay (herdr 0.9.5) it says no graphics, yet draws kitty images, so
-  in a herdr pane with a `HERDR_PANE_ID` detected half blocks become kitty. A
-  popup has no pane id and really drops graphics: half blocks there.
+- Images: herdr answers the terminal queries itself, in a shell pane with the
+  real cell size and kitty. Its plugin panes (herdr 0.9.5) answer neither the
+  kitty query nor `CSI 16 t`, and have no pixels in their window size, so
+  ratatui-image is left with half blocks at its default 10x20 cell, though
+  herdr draws kitty images there. In a herdr pane with a `HERDR_PANE_ID`, half
+  blocks become kitty only at a known cell size (answered, from the window's
+  pixels, or `--cell-size`): kitty images sized for 10x20 tear in herdr, whose
+  strips follow its own cell. A popup has no pane id and really drops
+  graphics: half blocks there.
   `LINEAR_TUI_ARGS` in herdr's environment adds arguments to every linear-tui
   the plugin starts. `scripts/herdr-screenshots.sh` renders the README's herdr
   screenshots in a herdr with its own `HOME`, server and tmux.
