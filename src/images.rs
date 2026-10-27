@@ -315,8 +315,9 @@ pub fn cache_dir(org: &str) -> Option<PathBuf> {
 }
 
 /// Whether this is a herdr pane that shows kitty graphics though detection
-/// says otherwise. herdr 0.9.5 answers the graphics query with no support in
-/// an overlay, which draws kitty images all the same; a popup (the one pane
+/// says otherwise. herdr 0.9.5 answers the kitty query in a plugin pane but
+/// not with the cell size, so ratatui-image settles on half blocks there,
+/// though herdr draws kitty images all the same; a popup (the one pane
 /// with no `HERDR_PANE_ID`) really drops them, so it keeps what was detected.
 pub fn herdr_draws_kitty(var: impl Fn(&str) -> Option<String>) -> bool {
     var("HERDR_ENV").as_deref() == Some("1") && var("HERDR_PANE_ID").is_some_and(|p| !p.is_empty())
